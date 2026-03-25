@@ -360,7 +360,7 @@ if run_btn:
     for sym in scan_s:
         prog.progress(max(step/max(total,1),0.01),text=f"📈 {sym}...")
         df=fetch_stock(sym)
-        if df is not None:
+        if df is not None and len(df) >= 50:
             df_i=calc_indicators(df)
             raw[sym]=df_i
             news=fetch_news(sym,"stock",newsapi_key,cryptopanic_key) if fetch_news_toggle else {"label":"","signal":"HOLD","score":0.0,"articles":[]}
@@ -375,7 +375,7 @@ if run_btn:
     for sym in scan_c:
         prog.progress(max(step/max(total,1),0.01),text=f"₿ {sym}...")
         df=fetch_crypto(sym)
-        if df is not None:
+        if df is not None and len(df) >= 50:
             df_i=calc_indicators(df)
             raw[sym]=df_i
             news=fetch_news(sym,"crypto",newsapi_key,cryptopanic_key) if fetch_news_toggle else {"label":"","signal":"HOLD","score":0.0,"articles":[]}
