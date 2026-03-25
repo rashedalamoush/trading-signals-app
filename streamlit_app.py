@@ -79,16 +79,26 @@ def fetch_stock(symbol):
         return df[["Open","High","Low","Close","Volume"]].dropna()
     except: return None
 
-def fetch_crypto(symbol, exchange_id="binance"):
+def fetch_crypto(symbol):
+    # الطريقة الأولى: الاعتماد على Yahoo Finance (ممتاز ومستقر على السيرفرات السحابية)
     try:
-        ex = getattr(ccxt, exchange_id)({"enableRateLimit": True})
+        yf_sym = symbol.replace("/USDT", "-USD")
+        df = yf.Ticker(yf_sym).history(period="6mo", interval="1d")
+        if not df.empty:
+            return df[["Open","High","Low","Close","Volume"]].dropna()
+    except:
+        pass
+
+    # الطريقة الثانية (بديل CCXT): استخدام KuCoin بدلاً من Binance لتجنب الحظر الجغرافي
+    try:
+        ex = ccxt.kucoin({"enableRateLimit": True})
         ohlcv = ex.fetch_ohlcv(symbol, timeframe="1d", limit=200)
         if not ohlcv: return None
         df = pd.DataFrame(ohlcv, columns=["ts","Open","High","Low","Close","Volume"])
         df["ts"] = pd.to_datetime(df["ts"], unit="ms")
         return df.set_index("ts").dropna()
-    except: return None
-
+    except: 
+        return None
 # ══════════════════════════════════════════════════════
 #  المؤشرات الفنية
 # ══════════════════════════════════════════════════════
