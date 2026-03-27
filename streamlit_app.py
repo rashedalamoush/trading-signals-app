@@ -1,4 +1,4 @@
-# streamlit_app.py — نظام إشارات التداول (ملف واحد مكتفي بذاته)
+# streamlit_app.py — نظام إشارات التداول ومحفظة الاستثمار
 # شغّله بـ: streamlit run streamlit_app.py
 
 import streamlit as st
@@ -8,6 +8,7 @@ import requests
 import feedparser
 import yfinance as yf
 import ccxt
+import os
 from datetime import datetime, timedelta, timezone
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
@@ -15,7 +16,7 @@ import plotly.graph_objects as go
 # ══════════════════════════════════════════════════════
 #  إعدادات الصفحة
 # ══════════════════════════════════════════════════════
-st.set_page_config(page_title="🤖 إشارات التداول", page_icon="📈",
+st.set_page_config(page_title="🤖 إشارات التداول والمحفظة", page_icon="📈",
                    layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
@@ -39,11 +40,38 @@ h1,h2,h3{font-family:'Tajawal',sans-serif!important;color:#e2e8f0!important;}
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════
+#  ملف تتبع المحفظة (الاحتفاظ بالبيانات)
+# ══════════════════════════════════════════════════════
+PORTFOLIO_FILE = "portfolio.csv"
+
+def load_portfolio():
+    if os.path.exists(PORTFOLIO_FILE):
+        return pd.read_csv(PORTFOLIO_FILE)
+    return pd.DataFrame(columns=["Symbol", "Quantity", "AvgPrice"])
+
+def add_to_portfolio(symbol, qty, price):
+    df = load_portfolio()
+    if symbol in df["Symbol"].values:
+        idx = df.index[df["Symbol"] == symbol].tolist()[0]
+        old_qty = df.at[idx, "Quantity"]
+        old_price = df.at[idx, "AvgPrice"]
+        new_qty = old_qty + qty
+        new_price = ((old_qty * old_price) + (qty * price)) / new_qty
+        df.at[idx, "Quantity"] = new_qty
+        df.at[idx, "AvgPrice"] = new_price
+    else:
+        new_row = pd.DataFrame([{"Symbol": symbol, "Quantity": qty, "AvgPrice": price}])
+        df = pd.concat([df, new_row], ignore_index=True)
+    df.to_csv(PORTFOLIO_FILE, index=False)
+
+def clear_portfolio():
+    if os.path.exists(PORTFOLIO_FILE):
+        os.remove(PORTFOLIO_FILE)
+
+# ══════════════════════════════════════════════════════
 #  الإعدادات الافتراضية للأسهم والعملات
 # ══════════════════════════════════════════════════════
 US_STOCKS = ["AAPL","MSFT","NVDA","TSLA","AMZN","GOOGL","META","NFLX","AMD","INTC"]
-
-# القائمة الشاملة لأسهم الإمارات (من صور راشد)
 UAE_STOCKS = [
     "IFA.AE", "SALAMA.AE", "SALAMBAH.AE", "DSI.AE", "DIC.AE", "EIBANK.AE",
     "DEYAAR.AE", "WATANI.AE", "TAALEEM.AE", "ARMX.AE", "ERC.AE", "DEWA.AE",
@@ -56,7 +84,6 @@ UAE_STOCKS = [
     "DTC.AE", "DFM.AE", "NCC.AE", "SPINNEYS.AE", "EMIRATESNBD.AE",
     "BHMCAPIT.AE", "CBD.AE", "DIB.AE", "ALDAR.AE"
 ]
-
 DEFAULT_STOCKS = US_STOCKS + UAE_STOCKS
 
 extracted_cryptos = [
@@ -84,7 +111,7 @@ SIGNAL_EMOJI={"STRONG_BUY":"🚀 شراء قوي","BUY":"🟢 شراء","HOLD":"
 SIGNAL_COLOR={"STRONG_BUY":"#00ff88","BUY":"#22c55e","HOLD":"#eab308","SELL":"#f97316","STRONG_SELL":"#ef4444"}
 
 # ══════════════════════════════════════════════════════
-#  جلب البيانات
+#  جلب البيانات السريعة والتاريخية
 # ══════════════════════════════════════════════════════
 def fetch_stock(symbol):
     try:
@@ -99,9 +126,7 @@ def fetch_crypto(symbol):
         df = yf.Ticker(yf_sym).history(period="6mo", interval="1d")
         if not df.empty:
             return df[["Open","High","Low","Close","Volume"]].dropna()
-    except:
-        pass
-
+    except: pass
     try:
         ex = ccxt.kucoin({"enableRateLimit": True})
         ohlcv = ex.fetch_ohlcv(symbol, timeframe="1d", limit=200)
@@ -109,11 +134,21 @@ def fetch_crypto(symbol):
         df = pd.DataFrame(ohlcv, columns=["ts","Open","High","Low","Close","Volume"])
         df["ts"] = pd.to_datetime(df["ts"], unit="ms")
         return df.set_index("ts").dropna()
-    except: 
-        return None
+    except: return None
+
+def get_current_price(symbol):
+    """جلب السعر الحالي بسرعة لصفحة المحفظة"""
+    try:
+        if "/USDT" in symbol:
+            yf_sym = symbol.replace("/USDT", "-USD")
+            return float(yf.Ticker(yf_sym).history(period="1d")['Close'].iloc[-1])
+        else:
+            return float(yf.Ticker(symbol).history(period="1d")['Close'].iloc[-1])
+    except:
+        return 0.0
 
 # ══════════════════════════════════════════════════════
-#  المؤشرات الفنية
+#  المؤشرات والأخبار (كما هي سابقاً)
 # ══════════════════════════════════════════════════════
 def calc_indicators(df):
     d = df.copy()
@@ -138,68 +173,53 @@ def calc_indicators(df):
 def get_signal(df):
     last=df.iloc[-1]; prev=df.iloc[-2]
     buy=0; sell=0; reasons=[]
-    
     c=float(last["Close"])
     
     lowest_6m = df["Low"].min()
     dist_from_low = (c - lowest_6m) / lowest_6m
     if dist_from_low <= 0.05:
-        buy+=1; reasons.append(f"🔥 السعر قريب جداً من قاع 6 أشهر ({lowest_6m:.2f}) ← فرصة شراء")
+        buy+=1; reasons.append(f"🔥 السعر قريب جداً من قاع 6 أشهر ({lowest_6m:.2f})")
 
     rsi=float(last["RSI"])
-    if rsi<RSI_OVERSOLD:   buy+=1;  reasons.append(f"RSI={rsi:.1f} تشبع بيعي ← شراء")
-    elif rsi>RSI_OVERBOUGHT: sell+=1; reasons.append(f"RSI={rsi:.1f} تشبع شرائي ← بيع")
+    if rsi<RSI_OVERSOLD: buy+=1; reasons.append(f"RSI={rsi:.1f} تشبع بيعي")
+    elif rsi>RSI_OVERBOUGHT: sell+=1; reasons.append(f"RSI={rsi:.1f} تشبع شرائي")
     
     h=float(last["MACD_Hist"]); hp=float(prev["MACD_Hist"])
-    if hp<0<h:   buy+=1;  reasons.append("MACD عبر الصفر صعوداً ← شراء")
-    elif hp>0>h: sell+=1; reasons.append("MACD عبر الصفر هبوطاً ← بيع")
+    if hp<0<h: buy+=1; reasons.append("MACD عبر الصفر صعوداً")
+    elif hp>0>h: sell+=1; reasons.append("MACD عبر الصفر هبوطاً")
     
-    if c<float(last["BB_L"]):   buy+=1;  reasons.append("السعر تحت مسار Bollinger السفلي ← شراء")
-    elif c>float(last["BB_U"]): sell+=1; reasons.append("السعر فوق مسار Bollinger العلوي ← بيع")
+    if c<float(last["BB_L"]): buy+=1; reasons.append("السعر تحت مسار Bollinger السفلي")
+    elif c>float(last["BB_U"]): sell+=1; reasons.append("السعر فوق مسار Bollinger العلوي")
     
     ms=float(last[f"MA{MA_SHORT}"]); ml=float(last[f"MA{MA_LONG}"])
     msp=float(prev[f"MA{MA_SHORT}"]); mlp=float(prev[f"MA{MA_LONG}"])
-    if msp<mlp and ms>ml:   buy+=1;  reasons.append(f"تقاطع ذهبي MA{MA_SHORT}/MA{MA_LONG} ← شراء")
-    elif msp>mlp and ms<ml: sell+=1; reasons.append(f"تقاطع الموت MA{MA_SHORT}/MA{MA_LONG} ← بيع")
+    if msp<mlp and ms>ml: buy+=1; reasons.append(f"تقاطع ذهبي MA{MA_SHORT}/MA{MA_LONG}")
+    elif msp>mlp and ms<ml: sell+=1; reasons.append(f"تقاطع الموت MA{MA_SHORT}/MA{MA_LONG}")
     
     vr=float(last["Vol_R"])
     if vr>1.5:
-        if buy>sell:   buy+=1;  reasons.append(f"حجم تداول مرتفع ({vr:.1f}x) يؤكد فرصة الشراء")
-        elif sell>buy: sell+=1; reasons.append(f"حجم تداول مرتفع ({vr:.1f}x) يؤكد قوة البيع")
+        if buy>sell: buy+=1; reasons.append(f"حجم تداول مرتفع ({vr:.1f}x) يؤكد الشراء")
+        elif sell>buy: sell+=1; reasons.append(f"حجم تداول مرتفع ({vr:.1f}x) يؤكد البيع")
         
     net=buy-sell
-    if net>=3:    sig="STRONG_BUY"
-    elif net>=2:  sig="BUY"
+    if net>=3: sig="STRONG_BUY"
+    elif net>=2: sig="BUY"
     elif net<=-3: sig="STRONG_SELL"
     elif net<=-2: sig="SELL"
-    else:         sig="HOLD"
+    else: sig="HOLD"
     return sig, reasons, rsi, float(last["MACD_Hist"]), vr, c
 
-# ══════════════════════════════════════════════════════
-#  تحليل الأخبار (تم تحديث القاموس للأسهم الجديدة)
-# ══════════════════════════════════════════════════════
-POS_WORDS={"surge","soar","rally","jump","boom","bullish","breakout","record","growth",
-           "profit","beat","upgrade","buy","strong","gain","rise","approved","partnership"}
-NEG_WORDS={"crash","plunge","drop","fall","decline","bearish","loss","miss","downgrade",
-           "sell","weak","tumble","slump","recession","ban","fraud","bankruptcy"}
+POS_WORDS={"surge","soar","rally","jump","boom","bullish","breakout","record","growth","profit","beat","upgrade","buy","strong","gain","rise","approved","partnership"}
+NEG_WORDS={"crash","plunge","drop","fall","decline","bearish","loss","miss","downgrade","sell","weak","tumble","slump","recession","ban","fraud","bankruptcy"}
 STRONG_POS={"surge","soar","boom","record","breakout","approved","all-time high"}
 STRONG_NEG={"crash","ban","fraud","bankruptcy","sec charges","rug pull"}
 
-STOCK_KW={
-    "AAPL":["Apple","AAPL"],"MSFT":["Microsoft","MSFT"],
-    "NVDA":["Nvidia","NVDA"],"TSLA":["Tesla","TSLA"],
-    "EMAAR.AE":["Emaar","إعمار"],"DIB.AE":["Dubai Islamic Bank","بنك دبي الإسلامي"],
-    "EMIRATESNBD.AE":["Emirates NBD","الإمارات دبي الوطني"],"ALDAR.AE":["Aldar","الدار العقارية"],
-    "AIRARABI.AE":["Air Arabia","طيران العربية"],"DEWA.AE":["DEWA","ديوا","كهرباء دبي"],
-    "SALIK.AE":["Salik","سالك"],"TALABAT.AE":["Talabat","طلبات"],
-    "PARKIN.AE":["Parkin","باركن"],"SPINNEYS.AE":["Spinneys","سبينس"],
-    "DU.AE":["Du Telecom","شركة دو","الإمارات للاتصالات المتكاملة"],
-    "DFM.AE":["Dubai Financial Market","سوق دبي المالي"],"DTC.AE":["Dubai Taxi","تاكسي دبي"],
-    "TECOM.AE":["Tecom","تيكوم"],"ARMX.AE":["Aramex","أرامكس"],
-    "DEYAAR.AE":["Deyaar","ديار للتطوير"],"DSI.AE":["Drake & Scull","دريك آند سكل"]
-}
-CRYPTO_KW={"BTC/USDT":["Bitcoin","BTC"],"ETH/USDT":["Ethereum","ETH"],
-           "SOL/USDT":["Solana","SOL"],"BNB/USDT":["Binance","BNB"],"XRP/USDT":["XRP","Ripple"]}
+STOCK_KW={"AAPL":["Apple","AAPL"],"MSFT":["Microsoft","MSFT"],"NVDA":["Nvidia","NVDA"],"TSLA":["Tesla","TSLA"],
+          "EMAAR.AE":["Emaar","إعمار"],"DIB.AE":["Dubai Islamic Bank","بنك دبي الإسلامي"],
+          "EMIRATESNBD.AE":["Emirates NBD","الإمارات دبي الوطني"],"ALDAR.AE":["Aldar","الدار العقارية"],
+          "AIRARABI.AE":["Air Arabia","طيران العربية"],"DEWA.AE":["DEWA","ديوا","كهرباء دبي"],
+          "SALIK.AE":["Salik","سالك"],"TALABAT.AE":["Talabat","طلبات"]}
+CRYPTO_KW={"BTC/USDT":["Bitcoin","BTC"],"ETH/USDT":["Ethereum","ETH"],"SOL/USDT":["Solana","SOL"],"ARB/USDT":["Arbitrum","ARB"],"SKY/USDT":["Sky","SKY"],"AMP/USDT":["Amp","AMP"]}
 
 def analyze_sentiment(text):
     t=text.lower(); score=0.0
@@ -214,16 +234,16 @@ def analyze_sentiment(text):
     return max(-1.0,min(1.0,score))
 
 def sentiment_label(s):
-    if s>=0.4:  return "🟢 إيجابي قوي"
+    if s>=0.4: return "🟢 إيجابي قوي"
     if s>=0.15: return "🟡 إيجابي"
     if s<=-0.4: return "🔴 سلبي قوي"
-    if s<=-0.15:return "🟠 سلبي"
-    return "⚪ محايد"
+    if s<=-0.15: return "🟠 سلبي"
+    return "⚪ محا محايد"
 
 def fetch_news(symbol, asset_type, newsapi_key="", cryptopanic_key=""):
     articles=[]; kws=[]
-    if asset_type=="stock":    kws=STOCK_KW.get(symbol,[symbol.replace(".AE","")])
-    else:                      kws=CRYPTO_KW.get(symbol,[symbol.replace("/USDT","")])
+    if asset_type=="stock": kws=STOCK_KW.get(symbol,[symbol.replace(".AE","")])
+    else: kws=CRYPTO_KW.get(symbol,[symbol.replace("/USDT","")])
 
     try:
         q=kws[0].replace(" ","+")
@@ -237,20 +257,7 @@ def fetch_news(symbol, asset_type, newsapi_key="", cryptopanic_key=""):
             articles.append({"source":"Yahoo","title":t,"sentiment":s})
     except: pass
 
-    if newsapi_key:
-        try:
-            q=" OR ".join(kws[:2])
-            r=requests.get("https://newsapi.org/v2/everything",timeout=8,
-                params={"q":q,"language":"en","sortBy":"publishedAt","pageSize":5,
-                        "apiKey":newsapi_key,"from":(datetime.now()-timedelta(days=2)).strftime("%Y-%m-%d")})
-            for item in r.json().get("articles",[]):
-                t=(item.get("title") or ""); d=(item.get("description") or "")
-                s=analyze_sentiment(t+" "+d)
-                articles.append({"source":item.get("source",{}).get("name","News"),"title":t,"sentiment":round(s,2)})
-        except: pass
-
-    if not articles:
-        return {"label":"⚪ لا أخبار","signal":"HOLD","score":0.0,"articles":[]}
+    if not articles: return {"label":"⚪ لا أخبار","signal":"HOLD","score":0.0,"articles":[]}
 
     scores=[a["sentiment"] for a in articles]
     w=list(range(len(scores),0,-1))
@@ -262,11 +269,11 @@ def fetch_news(symbol, asset_type, newsapi_key="", cryptopanic_key=""):
 def merge_signals(tech, news_sig, news_score):
     up={"BUY":"STRONG_BUY","SELL":"STRONG_SELL","HOLD":"BUY"}
     dn={"STRONG_BUY":"BUY","STRONG_SELL":"SELL","BUY":"HOLD","SELL":"HOLD"}
-    bull=news_sig=="BUY"  and news_score>0.2
+    bull=news_sig=="BUY" and news_score>0.2
     bear=news_sig=="SELL" and news_score<-0.2
-    if tech in ("BUY","STRONG_BUY")   and bull: return up.get(tech,tech)
+    if tech in ("BUY","STRONG_BUY") and bull: return up.get(tech,tech)
     if tech in ("SELL","STRONG_SELL") and bear: return up.get(tech,tech)
-    if tech in ("BUY","STRONG_BUY")   and bear: return dn.get(tech,"HOLD")
+    if tech in ("BUY","STRONG_BUY") and bear: return dn.get(tech,"HOLD")
     if tech in ("SELL","STRONG_SELL") and bull: return dn.get(tech,"HOLD")
     if tech=="HOLD" and bull: return "BUY"
     if tech=="HOLD" and bear: return "SELL"
@@ -309,30 +316,27 @@ def draw_chart(df, symbol):
 #  UI الرئيسي
 # ══════════════════════════════════════════════════════
 st.markdown("# 🤖 نظام إشارات التداول الذكي")
-st.markdown("<p style='color:#64748b;margin-top:-14px'>أسهم · عملات رقمية · صيد القيعان · تحليل أخبار</p>",unsafe_allow_html=True)
+st.markdown("<p style='color:#64748b;margin-top:-14px'>أسهم · عملات رقمية · محفظة · تحليل أخبار</p>",unsafe_allow_html=True)
 st.divider()
 
 with st.sidebar:
-    st.markdown("### ⚙️ الإعدادات")
+    st.markdown("### ⚙️ الإعدادات والمراقبة")
     asset_type=st.radio("نوع الأصل",["📈 أسهم","₿ عملات رقمية","🌐 الكل"],index=2)
-    st.markdown("**الأسهم (تشمل أمريكا والإمارات)**")
     
-    # قائمة الاختيار الافتراضية خفيفة لضمان سرعة التحميل الأولي
+    st.markdown("**الأسهم (تشمل أمريكا والإمارات)**")
+    # الخيارات الافتراضية للأسهم الإماراتية هنا 👇
     sel_stocks=st.multiselect("أسهم", DEFAULT_STOCKS, 
-                              default=["AAPL","EMAAR.AE","SALIK.AE","DEWA.AE"], 
+                              default=["EMAAR.AE", "SALIK.AE", "DEWA.AE", "DIB.AE"], 
                               label_visibility="collapsed")
     
     st.markdown("**العملات الرقمية**")
-    sel_crypto=st.multiselect("كريبتو",DEFAULT_CRYPTO,default=DEFAULT_CRYPTO[:4],label_visibility="collapsed")
+    # الخيارات الافتراضية للعملات التي طلبتها هنا 👇
+    sel_crypto=st.multiselect("كريبتو", DEFAULT_CRYPTO, 
+                              default=["SOL/USDT", "ARB/USDT", "SKY/USDT", "AMP/USDT"], 
+                              label_visibility="collapsed")
+    
     st.markdown("---")
-    fetch_news_toggle=st.toggle("📰 تحليل الأخبار",value=True)
-    only_actionable=st.toggle("🔔 إشارات فعلية فقط",value=True)
-    st.markdown("---")
-    st.markdown("**🔑 API Keys**")
-    newsapi_key=st.text_input("NewsAPI Key",type="password", value="558f26b08860418ea42396a5794fc124")
-    cryptopanic_key=st.text_input("CryptoPanic Key",type="password", value="6417468b0d999e839e5774c350baee05e3297ba7")
-    st.markdown("---")
-    run_btn=st.button("🔍 ابدأ المسح الآن",use_container_width=True)
+    run_btn=st.button("🔍 ابدأ مسح السوق الآن",use_container_width=True)
 
 if "results" not in st.session_state:
     st.session_state.results=[]
@@ -352,7 +356,7 @@ if run_btn:
         if df is not None and len(df) >= 50:
             df_i=calc_indicators(df)
             raw[sym]=df_i
-            news=fetch_news(sym,"stock",newsapi_key,cryptopanic_key) if fetch_news_toggle else {"label":"","signal":"HOLD","score":0.0,"articles":[]}
+            news=fetch_news(sym,"stock")
             tech_sig,reasons,rsi,mh,vr,price=get_signal(df_i)
             final=merge_signals(tech_sig,news["signal"],news["score"])
             results.append({"symbol":sym,"type":"stock","signal":final,"tech":tech_sig,
@@ -367,7 +371,7 @@ if run_btn:
         if df is not None and len(df) >= 50:
             df_i=calc_indicators(df)
             raw[sym]=df_i
-            news=fetch_news(sym,"crypto",newsapi_key,cryptopanic_key) if fetch_news_toggle else {"label":"","signal":"HOLD","score":0.0,"articles":[]}
+            news=fetch_news(sym,"crypto")
             tech_sig,reasons,rsi,mh,vr,price=get_signal(df_i)
             final=merge_signals(tech_sig,news["signal"],news["score"])
             results.append({"symbol":sym,"type":"crypto","signal":final,"tech":tech_sig,
@@ -383,71 +387,126 @@ if run_btn:
     st.rerun()
 
 results=st.session_state.results
-if not results:
-    st.markdown("<div style='text-align:center;padding:80px 0'><div style='font-size:5rem'>📡</div><div style='font-size:1.3rem;color:#334155;margin-top:16px'>اضغط ابدأ المسح من القائمة الجانبية</div></div>",unsafe_allow_html=True)
-    st.stop()
-
-st.markdown(f"<p style='color:#475569;font-size:.85rem'>⏱ آخر مسح: {st.session_state.last_scan}</p>",unsafe_allow_html=True)
-
-# KPIs
-n_sb=sum(1 for r in results if r["signal"]=="STRONG_BUY")
-n_b=sum(1 for r in results if r["signal"]=="BUY")
-n_h=sum(1 for r in results if r["signal"]=="HOLD")
-n_s=sum(1 for r in results if r["signal"] in ("SELL","STRONG_SELL"))
-cols=st.columns(5)
-for col,(val,lbl,color) in zip(cols,[(len(results),"إجمالي","#e2e8f0"),(n_sb,"🚀 شراء قوي","#00ff88"),
-    (n_b,"🟢 شراء","#22c55e"),(n_h,"🟡 انتظار","#eab308"),(n_s,"🔴 بيع","#ef4444")]):
-    col.markdown(f"<div class='kpi-box'><div class='kpi-val' style='color:{color}'>{val}</div><div class='kpi-lbl'>{lbl}</div></div>",unsafe_allow_html=True)
+if not results and not os.path.exists(PORTFOLIO_FILE):
+    st.info("👈 اضغط على 'ابدأ مسح السوق الآن' من القائمة الجانبية للبدء، أو اذهب لتبويب 'محفظتي' لإضافة صفقاتك.")
 
 st.markdown("<br>",unsafe_allow_html=True)
-t1,t2,t3=st.tabs(["📋 الإشارات","📊 الرسم البياني","📰 الأخبار"])
+
+# ══════════════════════════════════════════════════════
+#  التبويبات الرئيسية
+# ══════════════════════════════════════════════════════
+t1, t2, t3, t4 = st.tabs(["📋 إشارات السوق", "📊 الرسم البياني", "📰 الأخبار", "💼 محفظتي (جديد)"])
 
 with t1:
-    order={"STRONG_BUY":0,"BUY":1,"HOLD":2,"SELL":3,"STRONG_SELL":4}
-    display=[r for r in results if not only_actionable or r["signal"]!="HOLD"]
-    display.sort(key=lambda x:order.get(x["signal"],2))
-    if not display:
-        st.info("لا توجد إشارات فعلية حالياً — جميع الأصول في وضع الانتظار.")
-    for r in display:
-        c=SIGNAL_COLOR.get(r["signal"],"#64748b")
-        lbl=SIGNAL_EMOJI.get(r["signal"],r["signal"])
-        icon="📈" if r["type"]=="stock" else "₿"
-        rs="".join(f"<div style='font-size:.83rem;color:#64748b;margin-top:3px'>• {x}</div>" for x in r["reasons"]) or "<div style='font-size:.83rem;color:#64748b'>لا توجد إشارات فنية واضحة</div>"
-        ns=""
-        if r["news_label"]:
-            nc="#22c55e" if r["news_score"]>0.15 else "#ef4444" if r["news_score"]<-0.15 else "#64748b"
-            ns=f"<div style='margin-top:8px;font-size:.82rem;color:{nc}'>📰 {r['news_label']} | درجة: {r['news_score']:+.2f}</div>"
-        st.markdown(f"""<div class='sig-card sig-{r["signal"]}'>
-          <div style='display:flex;justify-content:space-between;align-items:center'>
-            <span style='font-size:1.1rem;font-weight:900;color:#e2e8f0'>{icon} {r["symbol"]}</span>
-            <span style='font-size:1.3rem;font-weight:900;color:{c}'>{lbl}</span>
-          </div>
-          <div style='font-size:.9rem;color:#94a3b8;font-family:IBM Plex Mono,monospace;margin-top:4px'>
-            السعر: {r["price"]:,.4f} &nbsp;|&nbsp; RSI: {r["rsi"]:.1f} &nbsp;|&nbsp; الحجم: {r["vol_ratio"]:.1f}x
-          </div>
-          {rs}{ns}
-        </div>""",unsafe_allow_html=True)
+    if results:
+        order={"STRONG_BUY":0,"BUY":1,"HOLD":2,"SELL":3,"STRONG_SELL":4}
+        display=sorted(results, key=lambda x:order.get(x["signal"],2))
+        for r in display:
+            c=SIGNAL_COLOR.get(r["signal"],"#64748b")
+            lbl=SIGNAL_EMOJI.get(r["signal"],r["signal"])
+            icon="📈" if r["type"]=="stock" else "₿"
+            rs="".join(f"<div style='font-size:.83rem;color:#64748b;margin-top:3px'>• {x}</div>" for x in r["reasons"])
+            st.markdown(f"""<div class='sig-card sig-{r["signal"]}'>
+              <div style='display:flex;justify-content:space-between;align-items:center'>
+                <span style='font-size:1.1rem;font-weight:900;color:#e2e8f0'>{icon} {r["symbol"]}</span>
+                <span style='font-size:1.3rem;font-weight:900;color:{c}'>{lbl}</span>
+              </div>
+              <div style='font-size:.9rem;color:#94a3b8;font-family:IBM Plex Mono,monospace;margin-top:4px'>
+                السعر: {r["price"]:,.4f} &nbsp;|&nbsp; RSI: {r["rsi"]:.1f}
+              </div>
+              {rs}
+            </div>""",unsafe_allow_html=True)
+    else:
+        st.write("قم ببدء المسح لرؤية الإشارات.")
 
 with t2:
-    syms=[r["symbol"] for r in results]
-    chosen=st.selectbox("اختر الأصل",syms)
-    df_c=st.session_state.raw_data.get(chosen)
-    if df_c is not None:
-        sig_c=next((r for r in results if r["symbol"]==chosen),None)
-        if sig_c:
-            c1,c2,c3,c4=st.columns(4)
-            c1.metric("الإشارة",SIGNAL_EMOJI.get(sig_c["signal"],"-"))
-            c2.metric("RSI",f"{sig_c['rsi']:.1f}")
-            c3.metric("MACD Hist",f"{sig_c['macd_hist']:+.4f}")
-            c4.metric("الحجم",f"{sig_c['vol_ratio']:.1f}x")
-        st.plotly_chart(draw_chart(df_c,chosen),use_container_width=True)
+    if results:
+        syms=[r["symbol"] for r in results]
+        chosen=st.selectbox("اختر الأصل لعرض رسمه البياني",syms)
+        df_c=st.session_state.raw_data.get(chosen)
+        if df_c is not None:
+            st.plotly_chart(draw_chart(df_c,chosen),use_container_width=True)
 
 with t3:
-    has=[r for r in results if r.get("articles")]
-    if not has:
-        st.info("فعّل 'تحليل الأخبار' من الشريط الجانبي.")
-    for r in has:
-        icon="📈" if r["type"]=="stock" else "₿"
-        with st.expander(f"{icon} {r['symbol']}  —  {r['news_label']}  ({r['news_score']:+.2f})"):
-            for a in r["articles"]:
-                st.markdown(f"<div style='padding:8px 12px;background:#0f1729;border-radius:6px;border:1px solid #1e2d4a;margin-bottom:6px;font-size:.87rem;color:#cbd5e1'>• {a}</div>",unsafe_allow_html=True)
+    if results:
+        has=[r for r in results if r.get("articles")]
+        for r in has:
+            with st.expander(f"{r['symbol']}  —  {r['news_label']}  ({r['news_score']:+.2f})"):
+                for a in r["articles"]:
+                    st.write(f"• {a}")
+
+# --- التبويب الرابع: المحفظة الاستثمارية ---
+with t4:
+    st.markdown("### 💼 إدارة المحفظة الاستثمارية")
+    st.markdown("سيتم حفظ بيانات صفقاتك محلياً على جهازك ولن تفقدها عند إغلاق التطبيق.")
+    
+    # نموذج إضافة صفقة جديدة
+    with st.form("add_trade_form"):
+        st.markdown("**إضافة شراء جديد للمحفظة:**")
+        col1, col2, col3 = st.columns(3)
+        p_sym = col1.selectbox("الأصل", DEFAULT_STOCKS + DEFAULT_CRYPTO)
+        p_qty = col2.number_input("الكمية المشتراة", min_value=0.0001, value=1.0, step=0.1)
+        p_price = col3.number_input("متوسط سعر الشراء", min_value=0.0001, value=100.0, step=0.1)
+        
+        if st.form_submit_button("➕ احفظ الصفقة"):
+            add_to_portfolio(p_sym, p_qty, p_price)
+            st.success(f"تمت إضافة {p_qty} من {p_sym} لمحفظتك بنجاح!")
+            st.rerun()
+            
+    # عرض المحفظة والأسعار اللحظية
+    df_port = load_portfolio()
+    if not df_port.empty:
+        st.markdown("---")
+        st.markdown("### 📊 أداء محفظتك اللحظي")
+        
+        total_invested = 0.0
+        total_current_value = 0.0
+        
+        # جدول احترافي لعرض البيانات
+        st.write("*(جاري جلب الأسعار اللحظية...)*")
+        display_data = []
+        for index, row in df_port.iterrows():
+            sym = row["Symbol"]
+            qty = float(row["Quantity"])
+            avg_price = float(row["AvgPrice"])
+            
+            # حسابات القيمة
+            invested = qty * avg_price
+            current_price = get_current_price(sym)
+            current_val = qty * current_price
+            
+            pnl_usd = current_val - invested
+            pnl_pct = (pnl_usd / invested) * 100 if invested > 0 else 0
+            
+            total_invested += invested
+            total_current_value += current_val
+            
+            display_data.append({
+                "الأصل": sym,
+                "الكمية": f"{qty:.4f}",
+                "متوسط الشراء": f"${avg_price:,.4f}",
+                "السعر الحالي": f"${current_price:,.4f}",
+                "الاستثمار (تكلفة)": f"${invested:,.2f}",
+                "الربح/الخسارة ($)": f"${pnl_usd:,.2f}",
+                "الربح/الخسارة (%)": f"{pnl_pct:,.2f}%"
+            })
+            
+        # عرض بطاقات الإجمالي
+        total_pnl = total_current_value - total_invested
+        total_pnl_pct = (total_pnl / total_invested) * 100 if total_invested > 0 else 0
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("إجمالي الاستثمار", f"${total_invested:,.2f}")
+        c2.metric("القيمة الحالية للمحفظة", f"${total_current_value:,.2f}")
+        c3.metric("صافي الربح/الخسارة", f"${total_pnl:,.2f}", f"{total_pnl_pct:,.2f}%")
+        
+        # عرض الجدول
+        df_display = pd.DataFrame(display_data)
+        st.dataframe(df_display, use_container_width=True)
+        
+        # زر تصفير المحفظة
+        if st.button("🗑️ مسح جميع بيانات المحفظة"):
+            clear_portfolio()
+            st.rerun()
+    else:
+        st.info("محفظتك فارغة حالياً. استخدم النموذج أعلاه لإضافة صفقاتك.")
