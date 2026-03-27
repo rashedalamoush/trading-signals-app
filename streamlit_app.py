@@ -41,9 +41,23 @@ h1,h2,h3{font-family:'Tajawal',sans-serif!important;color:#e2e8f0!important;}
 # ══════════════════════════════════════════════════════
 #  الإعدادات الافتراضية للأسهم والعملات
 # ══════════════════════════════════════════════════════
-# تم إضافة أسهم الإمارات هنا بامتداد .AE
-DEFAULT_STOCKS = ["AAPL","MSFT","NVDA","TSLA","AMZN","GOOGL","META","NFLX","AMD","INTC",
-                  "EMAAR.AE","DIB.AE","EMIRATESNBD.AE","ALDAR.AE","AIRARABIA.AE"]
+US_STOCKS = ["AAPL","MSFT","NVDA","TSLA","AMZN","GOOGL","META","NFLX","AMD","INTC"]
+
+# القائمة الشاملة لأسهم الإمارات (من صور راشد)
+UAE_STOCKS = [
+    "IFA.AE", "SALAMA.AE", "SALAMBAH.AE", "DSI.AE", "DIC.AE", "EIBANK.AE",
+    "DEYAAR.AE", "WATANI.AE", "TAALEEM.AE", "ARMX.AE", "ERC.AE", "DEWA.AE",
+    "TABREED.AE", "TAKAFULE.AE", "AMLAK.AE", "MAZAYA.AE", "UPP.AE",
+    "ALFIRDOU.AE", "SUKOONTA.AE", "NIND.AE", "NGI.AE", "NAHO.AE", "ITHMR.AE",
+    "GFH.AE", "EMAARDEV.AE", "DNIR.AE", "AGLTY.AE", "AIRARABI.AE",
+    "EKTTITAB.AE", "EMAAR.AE", "MASQ.AE", "DU.AE", "ALRAMZ.AE", "PARKIN.AE",
+    "NIH.AE", "AJMANBAN.AE", "AMANAT.AE", "ALANSARI.AE", "SHUAA.AE",
+    "GULFNAV.AE", "SALIK.AE", "TECOM.AE", "TALABAT.AE", "EMPOWER.AE",
+    "DTC.AE", "DFM.AE", "NCC.AE", "SPINNEYS.AE", "EMIRATESNBD.AE",
+    "BHMCAPIT.AE", "CBD.AE", "DIB.AE", "ALDAR.AE"
+]
+
+DEFAULT_STOCKS = US_STOCKS + UAE_STOCKS
 
 extracted_cryptos = [
     "BTC", "ETH", "BNB", "XRP", "SOL", "TRX", "DOGE", "ADA", "BCH", "XLM", "WBTC", "WBETH", "LINK", 
@@ -80,7 +94,6 @@ def fetch_stock(symbol):
     except: return None
 
 def fetch_crypto(symbol):
-    # الطريقة الأولى: الاعتماد على Yahoo Finance (ممتاز ومستقر على السيرفرات السحابية)
     try:
         yf_sym = symbol.replace("/USDT", "-USD")
         df = yf.Ticker(yf_sym).history(period="6mo", interval="1d")
@@ -89,7 +102,6 @@ def fetch_crypto(symbol):
     except:
         pass
 
-    # الطريقة الثانية (بديل CCXT): استخدام KuCoin بدلاً من Binance لتجنب الحظر الجغرافي
     try:
         ex = ccxt.kucoin({"enableRateLimit": True})
         ohlcv = ex.fetch_ohlcv(symbol, timeframe="1d", limit=200)
@@ -99,30 +111,26 @@ def fetch_crypto(symbol):
         return df.set_index("ts").dropna()
     except: 
         return None
+
 # ══════════════════════════════════════════════════════
 #  المؤشرات الفنية
 # ══════════════════════════════════════════════════════
 def calc_indicators(df):
     d = df.copy()
-    # RSI
     delta=d["Close"].diff(); gain=delta.clip(lower=0); loss=-delta.clip(upper=0)
     ag=gain.ewm(com=RSI_PERIOD-1,adjust=False).mean()
     al=loss.ewm(com=RSI_PERIOD-1,adjust=False).mean()
     d["RSI"]=100-(100/(1+ag/al.replace(0,np.nan)))
-    # MACD
     ef=d["Close"].ewm(span=MACD_FAST,adjust=False).mean()
     es=d["Close"].ewm(span=MACD_SLOW,adjust=False).mean()
     d["MACD"]=ef-es
     d["MACD_Sig"]=d["MACD"].ewm(span=MACD_SIGNAL_P,adjust=False).mean()
     d["MACD_Hist"]=d["MACD"]-d["MACD_Sig"]
-    # Bollinger
     sma=d["Close"].rolling(BB_PERIOD).mean()
     std=d["Close"].rolling(BB_PERIOD).std()
     d["BB_U"]=sma+BB_STD*std; d["BB_L"]=sma-BB_STD*std; d["BB_M"]=sma
-    # MA
     d[f"MA{MA_SHORT}"]=d["Close"].rolling(MA_SHORT).mean()
     d[f"MA{MA_LONG}"]=d["Close"].rolling(MA_LONG).mean()
-    # Volume
     d["Vol_MA"]=d["Volume"].rolling(20).mean()
     d["Vol_R"]=d["Volume"]/d["Vol_MA"]
     return d
@@ -133,15 +141,14 @@ def get_signal(df):
     
     c=float(last["Close"])
     
-    # استراتيجية صيد القيعان (Buy Low Strategy)
     lowest_6m = df["Low"].min()
     dist_from_low = (c - lowest_6m) / lowest_6m
-    if dist_from_low <= 0.05: # إذا كان السعر أعلى من القاع بـ 5% أو أقل
+    if dist_from_low <= 0.05:
         buy+=1; reasons.append(f"🔥 السعر قريب جداً من قاع 6 أشهر ({lowest_6m:.2f}) ← فرصة شراء")
 
     rsi=float(last["RSI"])
-    if rsi<RSI_OVERSOLD:   buy+=1;  reasons.append(f"RSI={rsi:.1f} تشبع بيعي (سعره مغرٍ) ← شراء")
-    elif rsi>RSI_OVERBOUGHT: sell+=1; reasons.append(f"RSI={rsi:.1f} تشبع شرائي (سعره مرتفع) ← بيع")
+    if rsi<RSI_OVERSOLD:   buy+=1;  reasons.append(f"RSI={rsi:.1f} تشبع بيعي ← شراء")
+    elif rsi>RSI_OVERBOUGHT: sell+=1; reasons.append(f"RSI={rsi:.1f} تشبع شرائي ← بيع")
     
     h=float(last["MACD_Hist"]); hp=float(prev["MACD_Hist"])
     if hp<0<h:   buy+=1;  reasons.append("MACD عبر الصفر صعوداً ← شراء")
@@ -169,26 +176,28 @@ def get_signal(df):
     return sig, reasons, rsi, float(last["MACD_Hist"]), vr, c
 
 # ══════════════════════════════════════════════════════
-#  تحليل الأخبار
+#  تحليل الأخبار (تم تحديث القاموس للأسهم الجديدة)
 # ══════════════════════════════════════════════════════
 POS_WORDS={"surge","soar","rally","jump","boom","bullish","breakout","record","growth",
-           "profit","beat","upgrade","buy","strong","gain","rise","approved","partnership",
-           "adoption","launch","etf","institutional","halving","all-time high"}
+           "profit","beat","upgrade","buy","strong","gain","rise","approved","partnership"}
 NEG_WORDS={"crash","plunge","drop","fall","decline","bearish","loss","miss","downgrade",
-           "sell","weak","tumble","slump","recession","ban","hack","fraud","bankruptcy",
-           "lawsuit","investigation","exploit","liquidation","sec charges","rug pull"}
-STRONG_POS={"surge","soar","boom","record","breakout","approved","all-time high","etf"}
-STRONG_NEG={"crash","ban","hack","fraud","bankruptcy","sec charges","rug pull","exploit"}
+           "sell","weak","tumble","slump","recession","ban","fraud","bankruptcy"}
+STRONG_POS={"surge","soar","boom","record","breakout","approved","all-time high"}
+STRONG_NEG={"crash","ban","fraud","bankruptcy","sec charges","rug pull"}
 
-# إضافة الكلمات المفتاحية لأسهم الإمارات
-STOCK_KW={"AAPL":["Apple","AAPL","iPhone"],"MSFT":["Microsoft","MSFT","Azure"],
-          "NVDA":["Nvidia","NVDA","GPU"],"TSLA":["Tesla","TSLA","Elon Musk"],
-          "AMZN":["Amazon","AMZN","AWS"],"GOOGL":["Google","Alphabet","GOOGL"],
-          "META":["Meta","Facebook","Mark Zuckerberg"], "NFLX":["Netflix","NFLX"],
-          "AMD":["AMD","Advanced Micro Devices"], "INTC":["Intel","INTC"],
-          "EMAAR.AE":["Emaar Properties","Emaar","إعمار"], "DIB.AE":["Dubai Islamic Bank","DIB","بنك دبي الإسلامي"],
-          "EMIRATESNBD.AE":["Emirates NBD","الإمارات دبي الوطني"], "ALDAR.AE":["Aldar Properties","Aldar","الدار العقارية"],
-          "AIRARABIA.AE":["Air Arabia","طيران العربية"]}
+STOCK_KW={
+    "AAPL":["Apple","AAPL"],"MSFT":["Microsoft","MSFT"],
+    "NVDA":["Nvidia","NVDA"],"TSLA":["Tesla","TSLA"],
+    "EMAAR.AE":["Emaar","إعمار"],"DIB.AE":["Dubai Islamic Bank","بنك دبي الإسلامي"],
+    "EMIRATESNBD.AE":["Emirates NBD","الإمارات دبي الوطني"],"ALDAR.AE":["Aldar","الدار العقارية"],
+    "AIRARABI.AE":["Air Arabia","طيران العربية"],"DEWA.AE":["DEWA","ديوا","كهرباء دبي"],
+    "SALIK.AE":["Salik","سالك"],"TALABAT.AE":["Talabat","طلبات"],
+    "PARKIN.AE":["Parkin","باركن"],"SPINNEYS.AE":["Spinneys","سبينس"],
+    "DU.AE":["Du Telecom","شركة دو","الإمارات للاتصالات المتكاملة"],
+    "DFM.AE":["Dubai Financial Market","سوق دبي المالي"],"DTC.AE":["Dubai Taxi","تاكسي دبي"],
+    "TECOM.AE":["Tecom","تيكوم"],"ARMX.AE":["Aramex","أرامكس"],
+    "DEYAAR.AE":["Deyaar","ديار للتطوير"],"DSI.AE":["Drake & Scull","دريك آند سكل"]
+}
 CRYPTO_KW={"BTC/USDT":["Bitcoin","BTC"],"ETH/USDT":["Ethereum","ETH"],
            "SOL/USDT":["Solana","SOL"],"BNB/USDT":["Binance","BNB"],"XRP/USDT":["XRP","Ripple"]}
 
@@ -213,7 +222,7 @@ def sentiment_label(s):
 
 def fetch_news(symbol, asset_type, newsapi_key="", cryptopanic_key=""):
     articles=[]; kws=[]
-    if asset_type=="stock":    kws=STOCK_KW.get(symbol,[symbol])
+    if asset_type=="stock":    kws=STOCK_KW.get(symbol,[symbol.replace(".AE","")])
     else:                      kws=CRYPTO_KW.get(symbol,[symbol.replace("/USDT","")])
 
     try:
@@ -228,33 +237,9 @@ def fetch_news(symbol, asset_type, newsapi_key="", cryptopanic_key=""):
             articles.append({"source":"Yahoo","title":t,"sentiment":s})
     except: pass
 
-    if asset_type=="crypto":
-        try:
-            feed=feedparser.parse("https://www.coindesk.com/arc/outboundfeeds/rss/")
-            kl=[k.lower() for k in kws]
-            for e in feed.entries[:20]:
-                t=e.get("title",""); sm=e.get("summary","")
-                if not any(k in (t+sm).lower() for k in kl): continue
-                s=analyze_sentiment(t+" "+sm)
-                articles.append({"source":"CoinDesk","title":t,"sentiment":s})
-                if len([a for a in articles if a["source"]=="CoinDesk"])>=4: break
-        except: pass
-
-    if asset_type=="crypto":
-        try:
-            coin=symbol.replace("/USDT","")
-            params={"currencies":coin,"public":"true","kind":"news"}
-            if cryptopanic_key: params["auth_token"]=cryptopanic_key
-            r=requests.get("https://cryptopanic.com/api/v1/posts/",params=params,timeout=8)
-            for item in r.json().get("results",[])[:6]:
-                t=item.get("title",""); s=analyze_sentiment(t)
-                v=item.get("votes",{}); s=min(1.0,s+0.1) if v.get("positive",0)>v.get("negative",0) else max(-1.0,s-0.1)
-                articles.append({"source":"CryptoPanic","title":t,"sentiment":round(s,2)})
-        except: pass
-
     if newsapi_key:
         try:
-            q=" OR ".join(kws[:3])
+            q=" OR ".join(kws[:2])
             r=requests.get("https://newsapi.org/v2/everything",timeout=8,
                 params={"q":q,"language":"en","sortBy":"publishedAt","pageSize":5,
                         "apiKey":newsapi_key,"from":(datetime.now()-timedelta(days=2)).strftime("%Y-%m-%d")})
@@ -331,8 +316,12 @@ with st.sidebar:
     st.markdown("### ⚙️ الإعدادات")
     asset_type=st.radio("نوع الأصل",["📈 أسهم","₿ عملات رقمية","🌐 الكل"],index=2)
     st.markdown("**الأسهم (تشمل أمريكا والإمارات)**")
-    # تم وضع أسهم الإمارات كجزء من الاختيارات الافتراضية
-    sel_stocks=st.multiselect("أسهم",DEFAULT_STOCKS,default=["AAPL","MSFT","EMAAR.AE","DIB.AE"],label_visibility="collapsed")
+    
+    # قائمة الاختيار الافتراضية خفيفة لضمان سرعة التحميل الأولي
+    sel_stocks=st.multiselect("أسهم", DEFAULT_STOCKS, 
+                              default=["AAPL","EMAAR.AE","SALIK.AE","DEWA.AE"], 
+                              label_visibility="collapsed")
+    
     st.markdown("**العملات الرقمية**")
     sel_crypto=st.multiselect("كريبتو",DEFAULT_CRYPTO,default=DEFAULT_CRYPTO[:4],label_visibility="collapsed")
     st.markdown("---")
