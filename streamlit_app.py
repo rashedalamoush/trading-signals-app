@@ -9,6 +9,8 @@ import feedparser
 import yfinance as yf
 import ccxt
 import os
+import json
+import anthropic
 from datetime import datetime, timedelta, timezone
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
@@ -313,6 +315,177 @@ def draw_chart(df, symbol):
     return fig
 
 # ══════════════════════════════════════════════════════
+#  🤖 وظائف المستشار الذكي (Claude AI)
+# ══════════════════════════════════════════════════════
+def build_ai_client(api_key):
+    """بناء عميل Claude"""
+    try:
+        return anthropic.Anthropic(api_key=api_key)
+    except Exception as e:
+        return None
+
+def ai_top_opportunities(client, results):
+    """تحليل أقوى فرص السوق من نتائج المسح"""
+    if not results:
+        return "⚠️ لا توجد نتائج مسح. ابدأ مسح السوق أولاً من القائمة الجانبية."
+    
+    # تجهيز ملخص النتائج للـ AI
+    strong_signals = [r for r in results if r["signal"] in ("STRONG_BUY", "BUY")]
+    summary = []
+    for r in results[:30]:  # نحد لـ 30 لتجنب تجاوز التوكنز
+        summary.append({
+            "symbol": r["symbol"],
+            "type": r["type"],
+            "signal": r["signal"],
+            "rsi": round(r["rsi"], 1),
+            "macd_hist": round(r["macd_hist"], 4),
+            "vol_ratio": round(r["vol_ratio"], 2),
+            "price": round(r["price"], 4),
+            "news": r["news_label"],
+            "reasons": r["reasons"][:3]
+        })
+    
+    prompt = f"""أنت مستشار مالي خبير متخصص بالأسواق المالية. بناءً على نتائج المسح التقني التالية، قدّم تحليلاً احترافياً.
+
+نتائج المسح:
+{json.dumps(summary, ensure_ascii=False, indent=2)}
+
+المطلوب منك:
+1. **أقوى 5 فرص استثمارية** الآن مع تبرير كل فرصة (RSI, MACD, حجم التداول، الأخبار)
+2. **تصنيف المخاطر** لكل فرصة (منخفض / متوسط / مرتفع)
+3. **المدة الزمنية المقترحة** للاحتفاظ (يوم / أسبوع / شهر)
+4. **نقطة الدخول المثلى** والهدف السعري التقديري
+5. **تحذيرات** مهمة يجب أخذها بعين الاعتبار
+
+اكتب بالعربية بأسلوب واضح ومنظم مع استخدام الرموز التعبيرية المناسبة."""
+
+    try:
+        with client.messages.stream(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1500,
+            messages=[{"role": "user", "content": prompt}]
+        ) as stream:
+            return stream.get_final_text()
+    except Exception as e:
+        return f"❌ خطأ في الاتصال بالذكاء الاصطناعي: {str(e)}"
+
+def ai_budget_allocation(client, budget, risk_profile, results):
+    """توصية ذكية لتوزيع الميزانية"""
+    strong = [r for r in results if r["signal"] in ("STRONG_BUY", "BUY")][:10]
+    
+    signals_text = ""
+    for r in strong:
+        signals_text += f"- {r['symbol']} ({r['type']}): إشارة {r['signal']}, RSI={r['rsi']:.1f}, سعر={r['price']:.4f}\n"
+    
+    if not signals_text:
+        signals_text = "لا توجد إشارات شراء حالية - السوق في وضع انتظار"
+    
+    prompt = f"""أنت مستشار مالي خبير. العميل لديه ميزانية استثمارية ويريد توزيعها بذكاء.
+
+**الميزانية المتاحة:** ${budget:,.2f}
+**ملف المخاطر:** {risk_profile}
+
+**الإشارات الإيجابية الحالية في السوق:**
+{signals_text}
+
+المطلوب: خطة توزيع الميزانية الكاملة تشمل:
+
+1. **التوزيع الاستراتيجي** (مثال: 40% أسهم آمنة، 30% عملات، 20% فرص نمو، 10% احتياطي)
+2. **المبالغ المحددة بالدولار** لكل فئة
+3. **الأصول المقترحة** من القائمة أعلاه مع المبلغ المخصص لكل أصل
+4. **استراتيجية الدخول**: كل مرة أم على دفعات؟
+5. **نقطة وقف الخسارة** الموصى بها (Stop Loss %)
+6. **هدف الربح** المتوقع خلال 3-6 أشهر
+
+اكتب بالعربية مع جداول واضحة وأرقام دقيقة."""
+
+    try:
+        with client.messages.stream(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1500,
+            messages=[{"role": "user", "content": prompt}]
+        ) as stream:
+            return stream.get_final_text()
+    except Exception as e:
+        return f"❌ خطأ: {str(e)}"
+
+def ai_doubling_analysis(client, symbol, amount, current_price, results):
+    """تحليل إمكانية مضاعفة المبلغ"""
+    asset_data = next((r for r in results if r["symbol"] == symbol), None)
+    
+    if asset_data:
+        context = f"""بيانات تقنية لـ {symbol}:
+- الإشارة الحالية: {asset_data['signal']}
+- RSI: {asset_data['rsi']:.1f}
+- حجم التداول: {asset_data['vol_ratio']:.2f}x المعدل
+- الأسباب التقنية: {', '.join(asset_data['reasons'])}
+- أخبار: {asset_data['news_label']}"""
+    else:
+        context = f"الأصل: {symbol} - السعر الحالي: ${current_price}"
+    
+    prompt = f"""أنت محلل مالي خبير. قيّم إمكانية مضاعفة مبلغ استثماري.
+
+**الأصل:** {symbol}
+**المبلغ المستثمر:** ${amount:,.2f}
+**السعر الحالي:** ${current_price}
+
+{context}
+
+قدّم تحليلاً شاملاً يتضمن:
+
+1. **هل التضعيف ممكن؟** (نعم/ربما/مستبعد) مع التبرير
+2. **الإطار الزمني الواقعي** للوصول لـ 2x (أشهر/سنوات)
+3. **السيناريوهات الثلاثة:**
+   - 🟢 سيناريو متفائل: السعر المستهدف والمدة
+   - 🟡 سيناريو محايد: العائد المتوقع
+   - 🔴 سيناريو متشائم: أقصى خسارة محتملة
+4. **مقارنة بدائل أسرع** لتحقيق نفس الهدف
+5. **نصيحة عملية**: هل تنصح بالاستثمار في هذا الأصل تحديداً أم لا؟
+6. **استراتيجية التراكم** (DCA) إذا كانت أفضل من الدخول دفعة واحدة
+
+اكتب بالعربية بصدق تام مع التحذيرات اللازمة."""
+
+    try:
+        with client.messages.stream(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1500,
+            messages=[{"role": "user", "content": prompt}]
+        ) as stream:
+            return stream.get_final_text()
+    except Exception as e:
+        return f"❌ خطأ: {str(e)}"
+
+def ai_portfolio_advice(client, portfolio_data, results):
+    """تحليل ذكي لأداء المحفظة الحالية"""
+    prompt = f"""أنت مستشار مالي خبير. حلّل أداء المحفظة الاستثمارية وقدّم توصيات.
+
+**بيانات المحفظة:**
+{json.dumps(portfolio_data, ensure_ascii=False, indent=2)}
+
+**ملخص السوق الحالي:**
+عدد الإشارات الإيجابية: {sum(1 for r in results if r['signal'] in ('STRONG_BUY','BUY'))}
+عدد إشارات البيع: {sum(1 for r in results if r['signal'] in ('STRONG_SELL','SELL'))}
+
+قدّم:
+1. **تقييم المحفظة الحالية**: هل التوزيع جيد؟
+2. **الأصول الرابحة**: هل تحتفظ بها أم تجني الأرباح؟
+3. **الأصول الخاسرة**: هل تقطع الخسائر أم تتراكم؟
+4. **فرص إعادة التوازن**: ما الذي يجب تعديله؟
+5. **التوصية الفورية**: أهم 3 إجراءات يجب اتخاذها الآن
+
+اكتب بالعربية بوضوح تام."""
+
+    try:
+        with client.messages.stream(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1200,
+            messages=[{"role": "user", "content": prompt}]
+        ) as stream:
+            return stream.get_final_text()
+    except Exception as e:
+        return f"❌ خطأ: {str(e)}"
+
+# ══════════════════════════════════════════════════════
 #  UI الرئيسي
 # ══════════════════════════════════════════════════════
 st.markdown("# 🤖 نظام إشارات التداول الذكي")
@@ -321,6 +494,18 @@ st.divider()
 
 with st.sidebar:
     st.markdown("### ⚙️ الإعدادات والمراقبة")
+    
+    st.markdown("---")
+    st.markdown("### 🤖 مستشار الذكاء الاصطناعي")
+    anthropic_key = st.text_input("🔑 Anthropic API Key", type="password",
+                                   placeholder="sk-ant-...",
+                                   help="أدخل مفتاح Anthropic API لتفعيل المستشار الذكي")
+    if anthropic_key:
+        st.success("✅ مفتاح API مفعّل")
+    else:
+        st.info("💡 أدخل مفتاح API لتفعيل التبويب الخامس")
+    st.markdown("---")
+    
     asset_type=st.radio("نوع الأصل",["📈 أسهم","₿ عملات رقمية","🌐 الكل"],index=2)
     
     st.markdown("**الأسهم (تشمل أمريكا والإمارات)**")
@@ -395,7 +580,7 @@ st.markdown("<br>",unsafe_allow_html=True)
 # ══════════════════════════════════════════════════════
 #  التبويبات الرئيسية
 # ══════════════════════════════════════════════════════
-t1, t2, t3, t4 = st.tabs(["📋 إشارات السوق", "📊 الرسم البياني", "📰 الأخبار", "💼 محفظتي (جديد)"])
+t1, t2, t3, t4, t5 = st.tabs(["📋 إشارات السوق", "📊 الرسم البياني", "📰 الأخبار", "💼 محفظتي", "🤖 المستشار الذكي"])
 
 with t1:
     if results:
@@ -510,3 +695,172 @@ with t4:
             st.rerun()
     else:
         st.info("محفظتك فارغة حالياً. استخدم النموذج أعلاه لإضافة صفقاتك.")
+
+# ══════════════════════════════════════════════════════
+#  التبويب الخامس: المستشار الذكي
+# ══════════════════════════════════════════════════════
+with t5:
+    st.markdown("## 🤖 المستشار المالي الذكي")
+    st.markdown("<p style='color:#64748b'>مدعوم بـ Claude AI · تحليل عميق للفرص والمخاطر</p>", unsafe_allow_html=True)
+    
+    if not anthropic_key:
+        st.warning("⚠️ أدخل مفتاح Anthropic API في القائمة الجانبية لتفعيل هذا التبويب.")
+        st.markdown("""
+        **ما يقدمه المستشار الذكي:**
+        - 🚀 **أقوى الفرص**: يحلل نتائج المسح ويختار أفضل 5 فرص استثمارية
+        - 💰 **توزيع الميزانية**: خطة ذكية لتوزيع رأس مالك بناءً على ملف مخاطرك
+        - 📈 **تحليل التضعيف**: هل يمكن مضاعفة مبلغك من أصل معين؟
+        - 💼 **تحليل المحفظة**: مراجعة ذكية لمحفظتك الحالية مع توصيات فورية
+        """)
+        st.stop()
+    
+    ai_client = build_ai_client(anthropic_key)
+    if not ai_client:
+        st.error("❌ مفتاح API غير صحيح. تحقق منه وأعد المحاولة.")
+        st.stop()
+    
+    results = st.session_state.get("results", [])
+    
+    # ── القسم 1: أقوى الفرص ──────────────────────────
+    st.markdown("---")
+    st.markdown("### 🚀 أقوى فرص رأس المال")
+    
+    col_a, col_b = st.columns([3,1])
+    with col_a:
+        st.markdown("يحلل نتائج مسح السوق ويختار أفضل الفرص الاستثمارية الحالية مع تبريرات تقنية وإخبارية.")
+    with col_b:
+        btn_opps = st.button("🔍 اعرض الفرص", use_container_width=True, key="btn_opps")
+    
+    if btn_opps:
+        if not results:
+            st.warning("👈 ابدأ مسح السوق أولاً من القائمة الجانبية ثم عد هنا.")
+        else:
+            with st.spinner("🤖 يحلل Claude البيانات ويختار أفضل الفرص..."):
+                analysis = ai_top_opportunities(ai_client, results)
+            st.markdown(f"""
+            <div style='background:#0f1729;border:1px solid #1e3a5f;border-radius:12px;padding:24px;
+                        border-left:4px solid #00ff88;font-family:Tajawal,sans-serif;line-height:1.9'>
+            {analysis.replace(chr(10), '<br>')}
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # ── القسم 2: توزيع الميزانية ────────────────────
+    st.markdown("---")
+    st.markdown("### 💰 خطة توزيع الميزانية")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        budget = st.number_input("💵 الميزانية المتاحة ($)", min_value=100.0, value=5000.0, step=100.0, key="budget_input")
+    with col2:
+        risk_profile = st.selectbox("⚖️ ملف المخاطر", 
+                                     ["🟢 محافظ (مخاطر منخفضة)", 
+                                      "🟡 متوازن (مخاطر متوسطة)", 
+                                      "🔴 مغامر (مخاطر مرتفعة)"],
+                                     index=1, key="risk_profile")
+    
+    btn_budget = st.button("📊 احسب التوزيع المثالي", use_container_width=True, key="btn_budget")
+    
+    if btn_budget:
+        with st.spinner("🤖 Claude يضع خطة التوزيع..."):
+            budget_plan = ai_budget_allocation(ai_client, budget, risk_profile, results)
+        st.markdown(f"""
+        <div style='background:#0f1729;border:1px solid #1e3a5f;border-radius:12px;padding:24px;
+                    border-left:4px solid #0ea5e9;font-family:Tajawal,sans-serif;line-height:1.9'>
+        {budget_plan.replace(chr(10), '<br>')}
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # ── القسم 3: تحليل التضعيف ──────────────────────
+    st.markdown("---")
+    st.markdown("### 📈 هل أقدر أضاعف مبلغي؟")
+    st.markdown("اختر أصلاً وحدد مبلغك لمعرفة إمكانية مضاعفته مع تحليل واقعي.")
+    
+    col3, col4 = st.columns(2)
+    all_symbols = list(set([r["symbol"] for r in results])) if results else DEFAULT_STOCKS[:10] + ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+    
+    with col3:
+        double_symbol = st.selectbox("🎯 اختر الأصل", all_symbols, key="double_sym")
+        double_amount = st.number_input("💵 المبلغ المراد استثماره ($)", min_value=50.0, value=1000.0, step=50.0, key="double_amt")
+    with col4:
+        # جلب السعر الحالي
+        current_p = get_current_price(double_symbol) if double_symbol else 0.0
+        st.metric("السعر الحالي", f"${current_p:,.4f}" if current_p > 0 else "غير متاح")
+        asset_result = next((r for r in results if r["symbol"] == double_symbol), None)
+        if asset_result:
+            sig_color = SIGNAL_COLOR.get(asset_result["signal"], "#64748b")
+            sig_label = SIGNAL_EMOJI.get(asset_result["signal"], asset_result["signal"])
+            st.markdown(f"<div style='margin-top:8px'>الإشارة: <span style='color:{sig_color};font-weight:900'>{sig_label}</span></div>", unsafe_allow_html=True)
+    
+    btn_double = st.button("🔮 حلل إمكانية التضعيف", use_container_width=True, key="btn_double")
+    
+    if btn_double:
+        if current_p == 0:
+            st.warning("⚠️ تعذّر جلب السعر الحالي. جرب مسح السوق أولاً.")
+        else:
+            with st.spinner(f"🤖 Claude يحلل إمكانية مضاعفة ${double_amount:,.0f} في {double_symbol}..."):
+                double_analysis = ai_doubling_analysis(ai_client, double_symbol, double_amount, current_p, results)
+            st.markdown(f"""
+            <div style='background:#0f1729;border:1px solid #1e3a5f;border-radius:12px;padding:24px;
+                        border-left:4px solid #f59e0b;font-family:Tajawal,sans-serif;line-height:1.9'>
+            {double_analysis.replace(chr(10), '<br>')}
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # ── القسم 4: تحليل المحفظة ──────────────────────
+    st.markdown("---")
+    st.markdown("### 💼 تحليل محفظتي الحالية")
+    
+    df_port_ai = load_portfolio()
+    if df_port_ai.empty:
+        st.info("💡 أضف صفقات في تبويب 'محفظتي' أولاً ثم عد هنا للحصول على تحليل ذكي.")
+    else:
+        # حساب أداء المحفظة
+        portfolio_summary = []
+        for _, row in df_port_ai.iterrows():
+            sym = row["Symbol"]
+            qty = float(row["Quantity"])
+            avg_p = float(row["AvgPrice"])
+            curr_p = get_current_price(sym)
+            invested = qty * avg_p
+            current_val = qty * curr_p
+            pnl_pct = ((current_val - invested) / invested * 100) if invested > 0 else 0
+            portfolio_summary.append({
+                "symbol": sym,
+                "quantity": qty,
+                "avg_buy_price": avg_p,
+                "current_price": curr_p,
+                "invested": round(invested, 2),
+                "current_value": round(current_val, 2),
+                "pnl_percent": round(pnl_pct, 2)
+            })
+        
+        total_inv = sum(p["invested"] for p in portfolio_summary)
+        total_curr = sum(p["current_value"] for p in portfolio_summary)
+        total_pnl_pct = ((total_curr - total_inv) / total_inv * 100) if total_inv > 0 else 0
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("إجمالي الاستثمار", f"${total_inv:,.2f}")
+        c2.metric("القيمة الحالية", f"${total_curr:,.2f}")
+        pnl_delta = f"{total_pnl_pct:+.2f}%"
+        c3.metric("صافي الأداء", f"${total_curr - total_inv:,.2f}", pnl_delta)
+        
+        btn_port_ai = st.button("🤖 اطلب تحليل ذكي للمحفظة", use_container_width=True, key="btn_port_ai")
+        
+        if btn_port_ai:
+            with st.spinner("🤖 Claude يراجع محفظتك ويضع التوصيات..."):
+                port_advice = ai_portfolio_advice(ai_client, portfolio_summary, results)
+            st.markdown(f"""
+            <div style='background:#0f1729;border:1px solid #1e3a5f;border-radius:12px;padding:24px;
+                        border-left:4px solid #a855f7;font-family:Tajawal,sans-serif;line-height:1.9'>
+            {port_advice.replace(chr(10), '<br>')}
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # تنبيه قانوني
+    st.markdown("---")
+    st.markdown("""
+    <div style='background:#1a0a00;border:1px solid #7c2d12;border-radius:8px;padding:12px;font-size:.8rem;color:#94a3b8;text-align:center'>
+    ⚠️ <strong>تنبيه قانوني:</strong> هذه التحليلات للأغراض التعليمية والمعلوماتية فقط وليست نصيحة مالية. 
+    التداول في الأسواق المالية ينطوي على مخاطر عالية وقد تخسر رأس مالك. استشر مستشاراً مالياً مرخصاً قبل اتخاذ أي قرار استثماري.
+    </div>
+    """, unsafe_allow_html=True)
