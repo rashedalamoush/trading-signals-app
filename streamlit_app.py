@@ -534,13 +534,12 @@ if run_btn:
     scan_c = sel_crypto if do_crypto else []
 
     total = len(scan_s) + len(scan_e) + len(scan_c)
-    step  = 0
+    step  = [0]
     prog  = st.progress(0, text="جاري المسح...")
+    icons = {"stock": "📈", "etf": "📦", "crypto": "₿"}
 
     def _process(sym: str, atype: str, fetch_fn) -> None:
-        nonlocal step
-        icons = {"stock":"📈","etf":"📦","crypto":"₿"}
-        pct   = max(step / max(total, 1), 0.01)
+        pct = max(step[0] / max(total, 1), 0.01)
         prog.progress(pct, text=f"{icons.get(atype,'•')} {sym}...")
         df = fetch_fn(sym)
         if df is not None and len(df) >= 50:
@@ -556,7 +555,7 @@ if run_btn:
                 "news_signal": news["signal"], "news_score": news["score"],
                 "articles": [a["title"] for a in news["articles"][:4]],
             })
-        step += 1
+        step[0] += 1
 
     for sym in scan_s: _process(sym, "stock",  fetch_stock)
     for sym in scan_e: _process(sym, "etf",    fetch_etf)
