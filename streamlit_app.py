@@ -138,15 +138,81 @@ def clear_portfolio() -> None:
 # ══════════════════════════════════════════════════════
 #  قوائم الأصول
 # ══════════════════════════════════════════════════════
-US_STOCKS = ["AAPL","MSFT","NVDA","TSLA","AMZN","GOOGL","META","NFLX","AMD","INTC"]
-UAE_STOCKS = [
-    "IFA.AE","SALAMA.AE","DSI.AE","DIC.AE","EIBANK.AE","DEYAAR.AE","WATANI.AE",
-    "TAALEEM.AE","ARMX.AE","ERC.AE","DEWA.AE","TABREED.AE","AMLAK.AE","MAZAYA.AE",
-    "ALFIRDOU.AE","NIND.AE","GFH.AE","EMAARDEV.AE","AIRARABI.AE","EKTTITAB.AE",
-    "EMAAR.AE","MASQ.AE","DU.AE","ALRAMZ.AE","PARKIN.AE","AJMANBAN.AE","AMANAT.AE",
-    "ALANSARI.AE","SHUAA.AE","GULFNAV.AE","SALIK.AE","TECOM.AE","TALABAT.AE",
-    "EMPOWER.AE","DFM.AE","NCC.AE","SPINNEYS.AE","EMIRATESNBD.AE","CBD.AE","DIB.AE","ALDAR.AE",
-]
+# ── أسهم أمريكية مقسّمة بالقطاعات ──────────────────────
+US_SECTORS: dict[str, list[str]] = {
+    "التكنولوجيا": [
+        "NVDA","MSFT","AAPL","GOOGL","META","AMZN","AMD","AVGO","QCOM","ORCL",
+        "CRM","NOW","ADBE","INTC","TXN","AMAT","LRCX","KLAC","SNPS","CDNS",
+        "MRVL","FTNT","PANW","CRWD","ZS","OKTA","DDOG","MDB","SNOW","PLTR",
+        "NET","HUBS","WDAY","TEAM","VEEV","TTD","ROKU","TWLO","BILL","RBLX",
+        "U","PAYC","DOCU","ZM","EPAM","ANSS","PTC","FSLR","MSCI","COIN",
+    ],
+    "الصحة والأدوية": [
+        "LLY","UNH","JNJ","ABBV","MRK","TMO","ABT","DHR","BMY","AMGN",
+        "GILD","ISRG","REGN","VRTX","SYK","BSX","MDT","EW","BDX","IDXX",
+        "IQV","MRNA","BNTX","BIIB","ALNY","INCY","ILMN","SRPT","HALO","IONS",
+        "RXRX","NUVL","LEGN","KYMR","ARVN","BEAM","CRSP","EDIT","NTLA","PACB",
+        "ROIV","ACAD","CRL","ZBH","SDGR","EXEL","RARE","PTGX","BDTX","CRVS",
+    ],
+    "المال والبنوك": [
+        "BRK-B","JPM","V","MA","BAC","WFC","MS","GS","AXP","SPGI",
+        "BLK","CB","PGR","AON","MMC","ICE","CME","MCO","FDS","AIG",
+        "TRV","ALL","AFL","MET","PRU","COF","DFS","SYF","ALLY","SOFI",
+        "AFRM","UPST","LC","HOOD","MSTR","MARA","RIOT","CLSK","HUT","BITF",
+        "FNF","FAF","AMP","RJF","SEIC","LPLA","TROW","BEN","IVZ","WDR",
+    ],
+    "الطاقة": [
+        "XOM","CVX","COP","SLB","EOG","MPC","PSX","VLO","DVN","FANG",
+        "HAL","BKR","OXY","HES","APA","MRO","CTRA","PR","SM","ENPH",
+        "SEDG","RUN","ARRY","NEE","AES","CEG","VST","NRG","OKE","WMB",
+        "KMI","ET","EPD","LNG","CWEN","CLNE","BE","PLUG","FCEL","RIG",
+        "VAL","NOV","WHD","PTEN","NE","HP","PBF","PARR","DKL","CAPL",
+    ],
+    "الاستهلاك": [
+        "TSLA","HD","MCD","NKE","SBUX","LOW","TJX","BKNG","CMG","YUM",
+        "DPZ","QSR","DKNG","MGM","WYNN","LVS","CZR","HLT","MAR","RCL",
+        "CCL","NCLH","UAL","DAL","AAL","LUV","ABNB","UBER","LYFT","DASH",
+        "ETSY","W","RVLV","CPRI","TPR","RL","PVH","LEVI","DECK","ONON",
+        "LULU","COLM","SKX","VFC","HBI","PTON","CHWY","SFIX","REAL","RENT",
+    ],
+    "الصناعة": [
+        "CAT","HON","RTX","DE","LMT","NOC","GD","BA","GE","MMM",
+        "EMR","ETN","PH","IR","AME","ROK","FTV","CARR","TT","JCI",
+        "XYL","GNRC","GWW","MSC","FAST","SWK","ITW","DOV","ROP","VRSK",
+        "CPRT","SAIA","ODFL","XPO","CHRW","EXPD","FDX","UPS","JBHT","KNX",
+        "WERN","ARCB","HTLD","MRTN","SNDR","AXON","TDG","HEI","TXT","SPR",
+    ],
+}
+US_STOCKS = [s for stocks in US_SECTORS.values() for s in stocks]
+
+# ── الأسهم الإماراتية مقسّمة بالقطاعات ──────────────────
+UAE_SECTORS: dict[str, list[str]] = {
+    "العقارات 🏗️": [
+        "EMAAR.AE","ALDAR.AE","EMAARDEV.AE","DEYAAR.AE","MAZAYA.AE",
+        "AMLAK.AE","ALFIRDOU.AE","NIND.AE","ARMX.AE","ERC.AE",
+    ],
+    "البنوك والمال 🏦": [
+        "EMIRATESNBD.AE","DIB.AE","CBD.AE","MASQ.AE","AJMANBAN.AE",
+        "WATANI.AE","EIBANK.AE","SHUAA.AE","GFH.AE","EKTTITAB.AE",
+        "ALANSARI.AE","AMANAT.AE","SALAMA.AE",
+    ],
+    "الطاقة والمرافق ⚡": [
+        "DEWA.AE","TABREED.AE","EMPOWER.AE","NCC.AE",
+    ],
+    "الاتصالات والتقنية 📡": [
+        "DU.AE","TECOM.AE","DIC.AE","DSI.AE",
+    ],
+    "النقل والخدمات 🚗": [
+        "AIRARABI.AE","SALIK.AE","PARKIN.AE","GULFNAV.AE",
+    ],
+    "الاستهلاك والتجزئة 🛒": [
+        "TALABAT.AE","SPINNEYS.AE","TAALEEM.AE",
+    ],
+    "أخرى 🏢": [
+        "DFM.AE","IFA.AE","ALRAMZ.AE",
+    ],
+}
+UAE_STOCKS = [s for stocks in UAE_SECTORS.values() for s in stocks]
 DEFAULT_STOCKS = US_STOCKS + UAE_STOCKS
 
 # ── ETFs ──────────────────────────────────────────────
@@ -487,21 +553,52 @@ with st.sidebar:
         index=3,
     )
 
-    st.markdown("**الأسهم**")
-    sel_stocks = st.multiselect(
-        "أسهم", DEFAULT_STOCKS,
-        default=["EMAAR.AE","SALIK.AE","DEWA.AE","DIB.AE"],
+    # ── الأسهم الأمريكية بالقطاعات ──────────────────────
+    st.markdown("**📈 الأسهم الأمريكية — اختر القطاع**")
+    us_sector_sel = st.selectbox(
+        "القطاع الأمريكي",
+        ["الكل"] + list(US_SECTORS.keys()),
         label_visibility="collapsed",
+        key="us_sec",
+    )
+    us_pool = US_STOCKS if us_sector_sel == "الكل" else US_SECTORS[us_sector_sel]
+    sel_us = st.multiselect(
+        "أسهم أمريكية", us_pool,
+        default=["NVDA","MSFT","AAPL","AMZN","TSLA"],
+        label_visibility="collapsed",
+        key="us_stocks",
     )
 
-    st.markdown("**صناديق ETF**")
+    st.markdown("---")
+
+    # ── الأسهم الإماراتية بالقطاعات ─────────────────────
+    st.markdown("**🇦🇪 الأسهم الإماراتية — اختر القطاع**")
+    uae_sector_sel = st.selectbox(
+        "القطاع الإماراتي",
+        ["الكل"] + list(UAE_SECTORS.keys()),
+        label_visibility="collapsed",
+        key="uae_sec",
+    )
+    uae_pool = UAE_STOCKS if uae_sector_sel == "الكل" else UAE_SECTORS[uae_sector_sel]
+    sel_uae = st.multiselect(
+        "أسهم إماراتية", uae_pool,
+        default=["EMAAR.AE","SALIK.AE","DEWA.AE","DIB.AE","EMIRATESNBD.AE"],
+        label_visibility="collapsed",
+        key="uae_stocks",
+    )
+
+    sel_stocks = sel_us + sel_uae
+
+    st.markdown("---")
+
+    st.markdown("**📦 صناديق ETF**")
     sel_etfs = st.multiselect(
         "ETFs", DEFAULT_ETF,
         default=["SPY","QQQ","GLD","IBIT","ARKK"],
         label_visibility="collapsed",
     )
 
-    st.markdown("**العملات الرقمية**")
+    st.markdown("**₿ العملات الرقمية**")
     sel_crypto = st.multiselect(
         "كريبتو", DEFAULT_CRYPTO,
         default=["SOL/USDT","ARB/USDT","BTC/USDT","ETH/USDT"],
@@ -590,11 +687,22 @@ t1, t2, t3, t4, t5, t6 = st.tabs([
 with t1:
     if results:
         order   = {"STRONG_BUY":0,"BUY":1,"HOLD":2,"SELL":3,"STRONG_SELL":4}
-        f1, f2  = st.columns([2,1])
+        f1, f2, f3  = st.columns([2,1,1])
         sig_f   = f1.multiselect("إشارة", list(SIGNAL_EMOJI.keys()), default=list(SIGNAL_EMOJI.keys()))
         type_f  = f2.multiselect("النوع",["stock","etf","crypto"], default=["stock","etf","crypto"])
+
+        # بناء قائمة القطاعات المتاحة من النتائج
+        def get_sector(sym: str) -> str:
+            if sym in UAE_STOCKS: return "🇦🇪 إماراتي"
+            for sec, stocks in US_SECTORS.items():
+                if sym in stocks: return sec
+            return "أخرى"
+        all_sectors = sorted(set(get_sector(r["symbol"]) for r in results if r["type"]=="stock"))
+        sector_f = f3.multiselect("القطاع", ["الكل"]+all_sectors, default=["الكل"])
+
         display = sorted(
-            [r for r in results if r["signal"] in sig_f and r["type"] in type_f],
+            [r for r in results if r["signal"] in sig_f and r["type"] in type_f
+             and ("الكل" in sector_f or r["type"]!="stock" or get_sector(r["symbol"]) in sector_f)],
             key=lambda x: order.get(x["signal"], 2),
         )
         TYPE_BG = {"stock":"#1e3a5f","etf":"#1f3a2a","crypto":"#2a1a3a"}
@@ -603,6 +711,7 @@ with t1:
         for r in display:
             clr = SIGNAL_COLOR.get(r["signal"],"#64748b")
             lbl = SIGNAL_EMOJI.get(r["signal"], r["signal"])
+            sec_tag = get_sector(r["symbol"])
             rs  = "".join(f"<div style='font-size:.83rem;color:#64748b;margin-top:3px'>• {x}</div>" for x in r["reasons"])
             st.markdown(f"""<div class='sig-card sig-{r["signal"]}'>
               <div style='display:flex;justify-content:space-between;align-items:center'>
@@ -611,6 +720,10 @@ with t1:
                   <span style='font-size:.7rem;padding:2px 8px;border-radius:8px;
                     background:{TYPE_BG.get(r["type"],"#1e2d4a")};color:#94a3b8;margin-right:6px'>
                     {TYPE_LBL.get(r["type"],r["type"])}
+                  </span>
+                  <span style='font-size:.65rem;padding:2px 6px;border-radius:8px;
+                    background:#1a2a1a;color:#6ee7b7;margin-right:4px'>
+                    {sec_tag}
                   </span>
                 </span>
                 <span style='font-size:1.3rem;font-weight:900;color:{clr}'>{lbl}</span>
@@ -689,7 +802,7 @@ with t4:
 # ── Tab 5 : محفظتي ────────────────────────────────────
 with t5:
     st.markdown("### 💼 محفظتي الاستثمارية")
-    all_assets = DEFAULT_STOCKS + DEFAULT_ETF + DEFAULT_CRYPTO
+    all_assets = sorted(set(DEFAULT_STOCKS + DEFAULT_ETF + DEFAULT_CRYPTO))
 
     with st.form("add_form"):
         st.markdown("**إضافة صفقة جديدة:**")
