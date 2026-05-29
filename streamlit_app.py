@@ -8,7 +8,6 @@ import numpy as np
 import requests
 import feedparser
 import yfinance as yf
-import ccxt
 import os
 from datetime import datetime, timedelta, timezone
 from plotly.subplots import make_subplots
@@ -213,7 +212,79 @@ UAE_SECTORS: dict[str, list[str]] = {
     ],
 }
 UAE_STOCKS = [s for stocks in UAE_SECTORS.values() for s in stocks]
-DEFAULT_STOCKS = US_STOCKS + UAE_STOCKS
+
+# ── الأسهم الأوروبية / الألمانية مقسّمة بالقطاعات ───────
+#   رموز yfinance:  .DE = شيتْرا (ألمانيا) · .VI = فيينا · .L = لندن
+#   .PA = باريس · .OL = أوسلو · .T = طوكيو · .HK = هونغ كونغ
+#   .KS = كوريا · .SI = سنغافورة · .AX = أستراليا · .TO = تورنتو
+EU_SECTORS: dict[str, list[str]] = {
+    "تقنية وبرمجيات 💻": [
+        "SAP.DE","IFX.DE","NEM.DE","BC8.DE","NA9.DE","ADN1.DE","GFT.DE","AOF.DE",
+        "YSN.DE","FAA.DE","PSAN.DE","D6H.DE","MUM.DE","A1OS.DE","EXL.DE","IXX.DE",
+        "COK.DE","SYT.DE","DAM.DE","CSH.DE","SYZ.DE","NFN.DE","LSX.DE","QBY.DE",
+        "CYR.DE","SHF.DE","S92.DE","WAF.DE","AIXA.DE","ELG.DE","SMHN.DE","TPE.DE",
+        "LPK.DE","SCE.DE","IS7.DE","V6C.DE","BSL.DE","MBQ.DE","M7U.DE","PO0.DE",
+    ],
+    "صناعة وسيارات 🏭": [
+        "SIE.DE","MBG.DE","BMW.DE","VOW3.DE","P911.DE","PAH3.DE","CON.DE","DTG.DE",
+        "KGX.DE","HOT.DE","G1A.DE","SHA.DE","HLE.DE","GMM.DE","VOS.DE","DEZ.DE",
+        "PFV.DE","ADV.DE","DUE.DE","ZIL2.DE","BDT.DE","NOEJ.DE","KBX.DE","STM.DE",
+        "MZX.DE","NTG.DE","PWO.DE","SFQ.DE","JST.DE","MSAG.DE","SF3.DE","SKB.DE",
+        "SNG.DE","OHB.DE","TNIE.DE","SUR.DE","RSL2.DE","ED4.DE","HP3A.DE","TTR1.DE",
+        "DAR.DE","A6T.DE","S4A.DE","ST5.DE","ULC.DE","ACWN.DE","DLX.DE","UZU.DE",
+    ],
+    "كيماويات ومواد 🧪": [
+        "BAS.DE","BAYN.DE","SY1.DE","BNR.DE","SDF.DE","LXS.DE","NDA.DE","EVK.DE",
+        "WCH.DE","1COV.DE","SZG.DE","FPE3.DE","ACT.DE","IBU.DE","DR0.DE","BFSA.DE",
+    ],
+    "بنوك ومال 🏦": [
+        "DBK.DE","CBK.DE","ALV.DE","MUV2.DE","HNR1.DE","TLX.DE","DWS.DE","HYQ.DE",
+        "GLJ.DE","PCZ.DE","UBK.DE","BWB.DE","JDC.DE","WUW.DE","NBG6.DE","PBB.DE",
+        "MLP.DE","VG8.DE","MBB.DE","DBAN.DE","A7A.DE","MWB.DE","SB1.DE","SXP.DE",
+        "BKHT.DE","DBQ.DE","FRU.DE","MUX.DE",
+    ],
+    "طاقة ومرافق ⚡": [
+        "RWE.DE","EOAN.DE","EBK.DE","ENR.DE","NDX1.DE","2GB.DE","VBK.DE","PNE3.DE",
+        "AB9.DE","HRPK.DE","EKT.DE","F3C.DE","NCH2.DE","H2O.DE","UUU.DE",
+    ],
+    "صحة وأدوية ⚕️": [
+        "FRE.DE","FME.DE","MRK.DE","QIA.DE","SRT3.DE","EVT.DE","AFX.DE","RDC.DE",
+        "GXI.DE","DRW3.DE","HPHA.DE","ILM1.DE","FYB.DE","B8F.DE","EUZ.DE","MED.DE",
+        "M12.DE","RHK.DE","GME.DE","V3V.DE","AJ91.DE","BNN.DE","BGT.DE","AAQ.DE",
+    ],
+    "استهلاك وتجزئة 🛒": [
+        "ADS.DE","PUM.DE","BOSS.DE","ZAL.DE","HFG.DE","DHER.DE","G24.DE","RAA.DE",
+        "DOU.DE","BIJ.DE","FIE.DE","LEI.DE","BYW6.DE","SZU.DE","HBH.DE","TTK.DE",
+        "WEW.DE","GFG.DE","BIKE.DE","AG1.DE","DEX.DE","SWA.DE","BEZ.DE","HAW.DE",
+        "BST.DE","KA8.DE","ACX.DE","EDL.DE","SPG.DE","CEC.DE","RRTL.DE","BVB.DE",
+        "PGN.DE","CA1.DE","R1B.DE","HNL.DE","KWS.DE",
+    ],
+    "عقارات 🏗️": [
+        "VNA.DE","LEG.DE","TEG.DE","GYC.DE","DWNI.DE","AT1.DE","ADJ.DE","GTY.DE",
+        "FC9.DE","RCM.DE","DEQ.DE","DEF.DE","PAT.DE","VIH.DE",
+    ],
+    "طيران ودفاع وشحن ✈️": [
+        "AIR.DE","RHM.DE","MTX.DE","LHA.DE","TKA.DE","FRA.DE","HLAG.DE","R3NK.DE",
+        "FQT.DE","PYR.DE","MA10.DE","LMIA.DE","INH.DE","GSC1.DE","KCO.DE","LIK.DE",
+    ],
+    "صناعات أخرى 🔧": [
+        "HEI.DE","KSB3.DE","DIE.DE","YOC.DE","SBX.DE","TIMA.DE","1SXP.DE","PZS.DE",
+    ],
+    "أسهم عالمية وآسيوية 🌍": [
+        "NVO","ERIC","BTI","BP","PBR","RR.L","H.TO","CS.TO","SCATC.OL","BABA",
+        "BYDDY","1810.HK","9992.HK","1913.HK","000660.KS","006400.KS","NTDOY",
+        "9983.T","6367.T","6301.T","HTHIY","7011.T","7012.T","8058.T","MITSY",
+        "ITOCY","FJTSY","9101.T","5802.T","TKOMY","300750.SZ","J36.SI","U11.SI",
+        "S68.SI","CBA.AX","LYC.AX",
+    ],
+    "النمسا 🇦🇹": [
+        "EBS.VI","RBI.VI","VOE.VI","VER.VI","WIE.VI","ANDR.VI","STR.VI","TKA.VI",
+        "OMV.VI","ATS.VI","POS.VI","FACC.VI","ZAG.VI",
+    ],
+}
+EU_STOCKS = [s for stocks in EU_SECTORS.values() for s in stocks]
+
+DEFAULT_STOCKS = US_STOCKS + UAE_STOCKS + EU_STOCKS
 
 # ── ETFs ──────────────────────────────────────────────
 ETF_CATALOG: dict[str, dict] = {
@@ -245,24 +316,11 @@ ETF_CATALOG: dict[str, dict] = {
     "TLT":  {"name": "iShares 20+ Yr Treasury",   "category": "سندات",        "er": "0.15%"},
     "AGG":  {"name": "iShares Core US Agg Bond",  "category": "سندات",        "er": "0.03%"},
     "BND":  {"name": "Vanguard Total Bond",       "category": "سندات",        "er": "0.03%"},
-    "IBIT": {"name": "iShares Bitcoin Trust",     "category": "Bitcoin ETF",  "er": "0.25%"},
-    "FBTC": {"name": "Fidelity Bitcoin ETF",      "category": "Bitcoin ETF",  "er": "0.25%"},
-    "ETHA": {"name": "iShares Ethereum Trust",    "category": "Ethereum ETF", "er": "0.25%"},
     "IWM":  {"name": "iShares Russell 2000",      "category": "شركات صغيرة", "er": "0.19%"},
     "VUG":  {"name": "Vanguard Growth ETF",       "category": "نمو",          "er": "0.04%"},
     "VTV":  {"name": "Vanguard Value ETF",        "category": "قيمة",         "er": "0.04%"},
 }
 DEFAULT_ETF = list(ETF_CATALOG.keys())
-
-CRYPTOS = [
-    "BTC","ETH","BNB","XRP","SOL","TRX","DOGE","ADA","BCH","XLM","LINK","HBAR","LTC","AVAX",
-    "SUI","SHIB","UNI","TON","DOT","AAVE","NEAR","WLD","PEPE","ETC","ICP","ONDO","FIL","POL",
-    "RENDER","QNT","ATOM","ARB","APT","ENA","ALGO","VIRTUAL","FET","JUP","VET","ENS","NEXO",
-    "BONK","OP","CAKE","STX","DASH","XTZ","SEI","CRV","CHZ","PENDLE","TIA","INJ","IMX","AXS",
-    "LDO","FLOKI","NEO","GRT","IOTA","SAND","PYTH","TWT","COMP","WIF","RUNE","MANA","THETA",
-    "BAT","GALA","1INCH","EGLD","BERA","SNX","ROSE","QTUM","YFI","SKY","AMP","ZEC","TRUMP",
-]
-DEFAULT_CRYPTO = [f"{c}/USDT" for c in CRYPTOS]
 
 # ══════════════════════════════════════════════════════
 #  معاملات المؤشرات
@@ -301,29 +359,9 @@ def fetch_stock(symbol: str):
 
 fetch_etf = fetch_stock
 
-def fetch_crypto(symbol: str):
-    try:
-        yf_sym = symbol.replace("/USDT", "-USD")
-        df = yf.Ticker(yf_sym).history(period="6mo", interval="1d")
-        if not df.empty:
-            return df[["Open","High","Low","Close","Volume"]].dropna()
-    except:
-        pass
-    try:
-        ex   = ccxt.kucoin({"enableRateLimit": True})
-        ohlcv = ex.fetch_ohlcv(symbol, timeframe="1d", limit=200)
-        if not ohlcv:
-            return None
-        df = pd.DataFrame(ohlcv, columns=["ts","Open","High","Low","Close","Volume"])
-        df["ts"] = pd.to_datetime(df["ts"], unit="ms")
-        return df.set_index("ts").dropna()
-    except:
-        return None
-
 def get_current_price(symbol: str) -> float:
     try:
-        yf_sym = symbol.replace("/USDT", "-USD") if "/USDT" in symbol else symbol
-        return float(yf.Ticker(yf_sym).history(period="2d")["Close"].iloc[-1])
+        return float(yf.Ticker(symbol).history(period="2d")["Close"].iloc[-1])
     except:
         return 0.0
 
@@ -417,16 +455,16 @@ STOCK_KW = {
     "TSLA":["Tesla","TSLA"],"EMAAR.AE":["Emaar","إعمار"],"DIB.AE":["Dubai Islamic Bank"],
     "EMIRATESNBD.AE":["Emirates NBD"],"ALDAR.AE":["Aldar","الدار"],"AIRARABI.AE":["Air Arabia"],
     "DEWA.AE":["DEWA","ديوا"],"SALIK.AE":["Salik","سالك"],"TALABAT.AE":["Talabat","طلبات"],
+    "SAP.DE":["SAP"],"SIE.DE":["Siemens"],"MBG.DE":["Mercedes-Benz","Mercedes"],
+    "BMW.DE":["BMW"],"VOW3.DE":["Volkswagen"],"ALV.DE":["Allianz"],"BAYN.DE":["Bayer"],
+    "BAS.DE":["BASF"],"DBK.DE":["Deutsche Bank"],"RHM.DE":["Rheinmetall"],"AIR.DE":["Airbus"],
+    "IFX.DE":["Infineon"],"DTE.DE":["Deutsche Telekom"],"ADS.DE":["Adidas"],"PUM.DE":["Puma"],
+    "NVO":["Novo Nordisk"],"BABA":["Alibaba"],"BYDDY":["BYD"],"PBR":["Petrobras"],
 }
 ETF_KW = {
     "SPY":["S&P 500","SPY"],"QQQ":["Nasdaq","QQQ"],"VTI":["Vanguard","VTI"],
-    "GLD":["Gold","GLD","ذهب"],"IBIT":["Bitcoin ETF","IBIT"],"ARKK":["ARK","ARKK"],
+    "GLD":["Gold","GLD","ذهب"],"ARKK":["ARK","ARKK"],
     "TLT":["Treasury","TLT","bonds"],"EEM":["emerging markets","EEM"],
-}
-CRYPTO_KW = {
-    "BTC/USDT":["Bitcoin","BTC"],"ETH/USDT":["Ethereum","ETH"],
-    "SOL/USDT":["Solana","SOL"],"ARB/USDT":["Arbitrum","ARB"],
-    "BNB/USDT":["Binance","BNB"],"XRP/USDT":["Ripple","XRP"],
 }
 
 def analyze_sentiment(text: str) -> float:
@@ -450,8 +488,11 @@ def sentiment_label(s: float) -> str:
 
 def fetch_news(symbol: str, asset_type: str) -> dict:
     articles = []
-    kws_map = STOCK_KW if asset_type == "stock" else ETF_KW if asset_type == "etf" else CRYPTO_KW
-    kws = kws_map.get(symbol, [symbol.replace(".AE","").replace("/USDT","")])
+    kws_map = ETF_KW if asset_type == "etf" else STOCK_KW
+    fallback = symbol
+    for suf in (".AE",".DE",".VI",".L",".PA",".OL",".T",".HK",".KS",".SI",".AX",".TO",".SZ"):
+        fallback = fallback.replace(suf, "")
+    kws = kws_map.get(symbol, [fallback])
     try:
         q    = kws[0].replace(" ", "+")
         feed = feedparser.parse(
@@ -540,7 +581,7 @@ def draw_chart(df: pd.DataFrame, symbol: str) -> go.Figure:
 # ══════════════════════════════════════════════════════
 st.markdown("# 🤖 نظام إشارات التداول الذكي")
 st.markdown(
-    "<p style='color:#64748b;margin-top:-14px'>أسهم · ETFs · عملات رقمية · محفظة · أخبار · مستشار AI</p>",
+    "<p style='color:#64748b;margin-top:-14px'>أسهم أمريكية · إماراتية · أوروبية · ETFs · محفظة · أخبار · مستشار AI</p>",
     unsafe_allow_html=True,
 )
 st.divider()
@@ -549,8 +590,8 @@ with st.sidebar:
     st.markdown("### ⚙️ الإعدادات")
     asset_type = st.radio(
         "نوع الأصل",
-        ["📈 أسهم", "📦 ETFs", "₿ عملات رقمية", "🌐 الكل"],
-        index=3,
+        ["📈 أسهم", "📦 ETFs", "🌐 الكل"],
+        index=2,
     )
 
     # ── الأسهم الأمريكية بالقطاعات ──────────────────────
@@ -587,21 +628,32 @@ with st.sidebar:
         key="uae_stocks",
     )
 
-    sel_stocks = sel_us + sel_uae
+    st.markdown("---")
+
+    # ── الأسهم الأوروبية / الألمانية بالقطاعات ───────────
+    st.markdown("**🇪🇺 الأسهم الأوروبية — اختر القطاع**")
+    eu_sector_sel = st.selectbox(
+        "القطاع الأوروبي",
+        ["الكل"] + list(EU_SECTORS.keys()),
+        label_visibility="collapsed",
+        key="eu_sec",
+    )
+    eu_pool = EU_STOCKS if eu_sector_sel == "الكل" else EU_SECTORS[eu_sector_sel]
+    sel_eu = st.multiselect(
+        "أسهم أوروبية", eu_pool,
+        default=["SAP.DE","SIE.DE","ALV.DE","MBG.DE","RHM.DE"],
+        label_visibility="collapsed",
+        key="eu_stocks",
+    )
+
+    sel_stocks = sel_us + sel_uae + sel_eu
 
     st.markdown("---")
 
     st.markdown("**📦 صناديق ETF**")
     sel_etfs = st.multiselect(
         "ETFs", DEFAULT_ETF,
-        default=["SPY","QQQ","GLD","IBIT","ARKK"],
-        label_visibility="collapsed",
-    )
-
-    st.markdown("**₿ العملات الرقمية**")
-    sel_crypto = st.multiselect(
-        "كريبتو", DEFAULT_CRYPTO,
-        default=["SOL/USDT","ARB/USDT","BTC/USDT","ETH/USDT"],
+        default=["SPY","QQQ","GLD","ARKK","TLT"],
         label_visibility="collapsed",
     )
 
@@ -624,16 +676,14 @@ if run_btn:
 
     do_stocks = "أسهم"   in asset_type or "الكل" in asset_type
     do_etfs   = "ETF"    in asset_type or "الكل" in asset_type
-    do_crypto = "عملات"  in asset_type or "الكل" in asset_type
 
     scan_s = sel_stocks if do_stocks else []
     scan_e = sel_etfs   if do_etfs   else []
-    scan_c = sel_crypto if do_crypto else []
 
-    total = len(scan_s) + len(scan_e) + len(scan_c)
+    total = len(scan_s) + len(scan_e)
     step  = [0]
     prog  = st.progress(0, text="جاري المسح...")
-    icons = {"stock": "📈", "etf": "📦", "crypto": "₿"}
+    icons = {"stock": "📈", "etf": "📦"}
 
     def _process(sym: str, atype: str, fetch_fn) -> None:
         pct = max(step[0] / max(total, 1), 0.01)
@@ -656,7 +706,6 @@ if run_btn:
 
     for sym in scan_s: _process(sym, "stock",  fetch_stock)
     for sym in scan_e: _process(sym, "etf",    fetch_etf)
-    for sym in scan_c: _process(sym, "crypto", fetch_crypto)
 
     prog.empty()
     st.session_state.results   = results
@@ -689,13 +738,15 @@ with t1:
         order   = {"STRONG_BUY":0,"BUY":1,"HOLD":2,"SELL":3,"STRONG_SELL":4}
         f1, f2, f3  = st.columns([2,1,1])
         sig_f   = f1.multiselect("إشارة", list(SIGNAL_EMOJI.keys()), default=list(SIGNAL_EMOJI.keys()))
-        type_f  = f2.multiselect("النوع",["stock","etf","crypto"], default=["stock","etf","crypto"])
+        type_f  = f2.multiselect("النوع",["stock","etf"], default=["stock","etf"])
 
         # بناء قائمة القطاعات المتاحة من النتائج
         def get_sector(sym: str) -> str:
             if sym in UAE_STOCKS: return "🇦🇪 إماراتي"
             for sec, stocks in US_SECTORS.items():
                 if sym in stocks: return sec
+            for sec, stocks in EU_SECTORS.items():
+                if sym in stocks: return f"🇪🇺 {sec}"
             return "أخرى"
         all_sectors = sorted(set(get_sector(r["symbol"]) for r in results if r["type"]=="stock"))
         sector_f = f3.multiselect("القطاع", ["الكل"]+all_sectors, default=["الكل"])
@@ -705,9 +756,9 @@ with t1:
              and ("الكل" in sector_f or r["type"]!="stock" or get_sector(r["symbol"]) in sector_f)],
             key=lambda x: order.get(x["signal"], 2),
         )
-        TYPE_BG = {"stock":"#1e3a5f","etf":"#1f3a2a","crypto":"#2a1a3a"}
-        TYPE_LBL= {"stock":"سهم","etf":"ETF","crypto":"كريبتو"}
-        TYPE_IC = {"stock":"📈","etf":"📦","crypto":"₿"}
+        TYPE_BG = {"stock":"#1e3a5f","etf":"#1f3a2a"}
+        TYPE_LBL= {"stock":"سهم","etf":"ETF"}
+        TYPE_IC = {"stock":"📈","etf":"📦"}
         for r in display:
             clr = SIGNAL_COLOR.get(r["signal"],"#64748b")
             lbl = SIGNAL_EMOJI.get(r["signal"], r["signal"])
@@ -788,7 +839,7 @@ with t4:
     if results:
         has = [r for r in results if r.get("articles")]
         if has:
-            TYPE_IC = {"stock":"📈","etf":"📦","crypto":"₿"}
+            TYPE_IC = {"stock":"📈","etf":"📦"}
             for r in has:
                 icon = TYPE_IC.get(r["type"],"•")
                 with st.expander(f"{icon} {r['symbol']} — {r['news_label']} ({r['news_score']:+.2f})"):
@@ -802,13 +853,13 @@ with t4:
 # ── Tab 5 : محفظتي ────────────────────────────────────
 with t5:
     st.markdown("### 💼 محفظتي الاستثمارية")
-    all_assets = sorted(set(DEFAULT_STOCKS + DEFAULT_ETF + DEFAULT_CRYPTO))
+    all_assets = sorted(set(DEFAULT_STOCKS + DEFAULT_ETF))
 
     with st.form("add_form"):
         st.markdown("**إضافة صفقة جديدة:**")
         c1, c2, c3, c4 = st.columns([2,1,1,1])
         p_sym   = c1.selectbox("الأصل", all_assets)
-        p_type  = c2.selectbox("النوع", ["stock","etf","crypto"])
+        p_type  = c2.selectbox("النوع", ["stock","etf"])
         p_qty   = c3.number_input("الكمية",    min_value=0.0001, value=1.0,   step=0.1,  format="%.4f")
         p_price = c4.number_input("السعر ($)", min_value=0.0001, value=100.0, step=0.01, format="%.4f")
         if st.form_submit_button("➕ احفظ الصفقة"):
@@ -916,7 +967,7 @@ with t6:
                 reply = call_claude(
                     ctx + prompt_in,
                     system=(
-                        "أنت مستشار مالي ذكي متخصص في الأسهم والـ ETFs والعملات الرقمية. "
+                        "أنت مستشار مالي ذكي متخصص في الأسهم الأمريكية والإماراتية والأوروبية والـ ETFs. "
                         "تجيب بالعربية دائماً بشكل مختصر وعملي. "
                         "تنبّه أن ردودك تعليمية وليست نصيحة مرخصة."
                     ),
