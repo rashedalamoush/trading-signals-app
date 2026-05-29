@@ -145,6 +145,7 @@ US_SECTORS: dict[str, list[str]] = {
         "MRVL","FTNT","PANW","CRWD","ZS","OKTA","DDOG","MDB","SNOW","PLTR",
         "NET","HUBS","WDAY","TEAM","VEEV","TTD","ROKU","TWLO","BILL","RBLX",
         "U","PAYC","DOCU","ZM","EPAM","ANSS","PTC","FSLR","MSCI","COIN",
+        "DELL","NTAP","PD","MX",
     ],
     "الصحة والأدوية": [
         "LLY","UNH","JNJ","ABBV","MRK","TMO","ABT","DHR","BMY","AMGN",
@@ -152,6 +153,7 @@ US_SECTORS: dict[str, list[str]] = {
         "IQV","MRNA","BNTX","BIIB","ALNY","INCY","ILMN","SRPT","HALO","IONS",
         "RXRX","NUVL","LEGN","KYMR","ARVN","BEAM","CRSP","EDIT","NTLA","PACB",
         "ROIV","ACAD","CRL","ZBH","SDGR","EXEL","RARE","PTGX","BDTX","CRVS",
+        "REPL","SLXN","CMND","CDT","SNSE","CCCC","KDLY","RDGT",
     ],
     "المال والبنوك": [
         "BRK-B","JPM","V","MA","BAC","WFC","MS","GS","AXP","SPGI",
@@ -180,6 +182,9 @@ US_SECTORS: dict[str, list[str]] = {
         "XYL","GNRC","GWW","MSC","FAST","SWK","ITW","DOV","ROP","VRSK",
         "CPRT","SAIA","ODFL","XPO","CHRW","EXPD","FDX","UPS","JBHT","KNX",
         "WERN","ARCB","HTLD","MRTN","SNDR","AXON","TDG","HEI","TXT","SPR",
+    ],
+    "ناشئة ومضاربية 🆕": [
+        "LGCB","SGBX","VCIG","CISO","DGNX","TNMG","LSE","CLIK",
     ],
 }
 US_STOCKS = [s for stocks in US_SECTORS.values() for s in stocks]
@@ -460,6 +465,7 @@ STOCK_KW = {
     "BAS.DE":["BASF"],"DBK.DE":["Deutsche Bank"],"RHM.DE":["Rheinmetall"],"AIR.DE":["Airbus"],
     "IFX.DE":["Infineon"],"DTE.DE":["Deutsche Telekom"],"ADS.DE":["Adidas"],"PUM.DE":["Puma"],
     "NVO":["Novo Nordisk"],"BABA":["Alibaba"],"BYDDY":["BYD"],"PBR":["Petrobras"],
+    "DELL":["Dell"],"NTAP":["NetApp"],"PD":["PagerDuty"],"REPL":["Replimune"],
 }
 ETF_KW = {
     "SPY":["S&P 500","SPY"],"QQQ":["Nasdaq","QQQ"],"VTI":["Vanguard","VTI"],
